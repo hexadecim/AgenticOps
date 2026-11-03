@@ -160,11 +160,58 @@ LLM = SectionSpec(
     ),
 )
 
-SECTIONS: dict[str, SectionSpec] = {s.id: s for s in (MAILBOX, JIRA, LLM)}
+OPS = SectionSpec(
+    id="ops",
+    title="Ops",
+    description="What the Diagnostics agent may look at and propose. Every action still needs a support "
+    "agent's approval (T2) before it runs.",
+    fields=(
+        FieldSpec(
+            "executor",
+            "Executor",
+            "select",
+            required=True,
+            default="mock",
+            options=(Option("mock", "Mock environment (simulated; never touches a real system)"),),
+            help="Real executors are added as adapters in ops-service; until then actions run on the mock.",
+        ),
+        FieldSpec(
+            "enabled_actions",
+            "Enabled actions",
+            required=True,
+            default="restart_service, retry_failed_uploads",
+            help="Comma-separated, from the allow-list: restart_service, retry_failed_uploads. "
+            "Write 'none' to switch all off.",
+        ),
+        FieldSpec(
+            "runbook_folder",
+            "Runbook folder",
+            required=True,
+            default="/etc/opspilot/ops/runbooks",
+            help="Markdown runbooks inside the ops-service container. Steps name the actions they allow.",
+        ),
+        FieldSpec(
+            "log_folder",
+            "Log folder",
+            required=True,
+            default="/etc/opspilot/ops/logs",
+            help="One <service>.log per service. Personal data is masked before anyone sees a line.",
+        ),
+        FieldSpec(
+            "probe_targets",
+            "Extra HTTP probes",
+            placeholder="Portal=https://portal.example.com/health, Login=https://login.example.com/health",
+            help="Optional. Name=URL pairs, separated by commas; healthy when the answer is below 400.",
+        ),
+    ),
+)
+
+SECTIONS: dict[str, SectionSpec] = {s.id: s for s in (MAILBOX, JIRA, LLM, OPS)}
 
 # Which services may read a section's resolved configuration, decrypted secrets included (internal API).
 READERS: dict[str, frozenset[str]] = {
     "mailbox": frozenset({"mail-service"}),
     "jira": frozenset({"jira-connector"}),
     "llm": frozenset({"agent-orchestrator", "ops-service"}),
+    "ops": frozenset({"ops-service"}),
 }

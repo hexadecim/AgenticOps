@@ -66,9 +66,9 @@ async def api() -> AsyncIterator[tuple[httpx.AsyncClient, Container, object]]:
     async with engine.begin() as conn:
         await conn.run_sync(container.tables.metadata.create_all)
     handler = Inbox(container.tables.inbox, "approval-service.events").guard(
-        container.sessions, on_event(container.record_request, container.record_outcome)
+        container.sessions, on_event(container.record_request, container.record_outcome, container.record_fix)
     )
-    app = create_app(container, with_events=False)
+    app = create_app(container, with_events=False, with_reminders=False)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://approval"
     ) as client:
@@ -147,3 +147,41 @@ async def test_queue_is_for_case_roles(api) -> None:  # type: ignore[no-untyped-
     assert (await client.get("/v1/approvals")).status_code == 401
     assert (await client.get("/v1/approvals", headers=user(Role.ADMIN))).status_code == 403
     assert (await client.get("/v1/approvals/missing", headers=user(Role.SUPPORT_MANAGER))).status_code == 404
+
+
+async def test_fix_gate_reminder_and_outcome(api) -> None:  # type: ignore[no-untyped-def]
+    from opspilot_common.events.catalogue import ActionExecuted
+
+    client, container, handler = api
+    env = requested(7, Gate.FIX, minutes_ago=16)
+    env = env.model_copy(update={"payload": {**env.payload, "jira_key": "KAN-12"}})
+    await handler(env)
+    assert await container.send_reminders() == 1
+    assert await container.send_reminders() == 0  # next one at 30 min
+    async with container.sessions() as s:
+        bodies = [json.loads(b) for b in (await s.execute(select(container.tables.outbox.c.body))).scalars()]
+    (reminder,) = [b["payload"] for b in bodies if b["type"] == "approval.reminder"]
+    assert (
+        reminder["waiting_seconds"] == 960 and reminder["jira_key"] == "KAN-12" and reminder["reminder"] == 1
+    )
+    item = (await client.get("/v1/approvals/a-7", headers=user(Role.SUPPORT_AGENT))).json()
+    assert item["reminders"] == 1 and item["next_reminder_at"].startswith("2026-10-08T10:14")
+    r = await client.post(
+        "/v1/approvals/a-7/decision", json={"decision": "approve"}, headers=user(Role.L1_ANALYST)
+    )
+    assert r.status_code == 403  # T2 is for a support agent only
+    r = await client.post(
+        "/v1/approvals/a-7/decision", json={"decision": "approve"}, headers=user(Role.SUPPORT_AGENT)
+    )
+    assert r.status_code == 200 and r.json()["outcome"] == "fix_pending"
+    await handler(
+        EventEnvelope.wrap(
+            ActionExecuted(
+                approval_id="a-7", action="restart_service", params={"service": "upload-worker"}, ok=True,
+                detail="Mock executor restarted upload-worker", run_id="r-7",
+            ),
+            source="ops-service",
+        )
+    )  # fmt: skip
+    item = (await client.get("/v1/approvals/a-7", headers=user(Role.SUPPORT_AGENT))).json()
+    assert item["outcome"] == "fix_done" and item["outcome_detail"] == "Mock executor restarted upload-worker"

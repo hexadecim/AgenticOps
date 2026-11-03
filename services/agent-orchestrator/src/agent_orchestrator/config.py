@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     settings_url: str = "http://localhost:8002"
     privacy_url: str = "http://localhost:8004"
     jira_connector_url: str = "http://localhost:8007"
+    ops_url: str = "http://localhost:8010"
     jwt_secret: str = Field(min_length=32)
     resilience_config: str | None = None
     log_json: bool = True

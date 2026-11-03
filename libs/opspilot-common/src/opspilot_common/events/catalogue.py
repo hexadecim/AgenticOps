@@ -122,6 +122,11 @@ class ApprovalReminder(EventPayload):
     approval_id: str
     gate: Gate
     waiting_seconds: int
+    run_id: str | None = None
+    thread_id: str | None = None
+    jira_key: str | None = None
+    title: str | None = None
+    reminder: int = Field(default=1, description="1 for the first reminder, 2 for the next, ...")
 
 
 class JiraIssueCreated(EventPayload):
@@ -155,20 +160,31 @@ class JiraIssueFailed(EventPayload):
 
 
 class ProbeStatus(EventPayload):
+    """A health probe changed state (healthy ↔ failing). Repeats of the same state are not published."""
+
     EVENT_TYPE = EventType.PROBE_STATUS
     probe: str
     ok: bool
     detail: str
     latency_ms: int | None = None
+    region: str | None = None
+    run_id: str | None = None
+    thread_id: str | None = None
 
 
 class ActionExecuted(EventPayload):
+    """An approved production action ran (or was refused at execution time: ok=False)."""
+
     EVENT_TYPE = EventType.ACTION_EXECUTED
     approval_id: str
     action: str
     params: dict[str, Any]
     ok: bool
     detail: str
+    run_id: str | None = None
+    thread_id: str | None = None
+    jira_key: str | None = None
+    executor: str | None = Field(default=None, description="mock | ... (which executor ran it)")
 
 
 class PrivacyRecorded(EventPayload):

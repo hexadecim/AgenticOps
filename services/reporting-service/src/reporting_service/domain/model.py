@@ -14,7 +14,7 @@ from enum import StrEnum
 
 class Stage(StrEnum):
     INTAKE = "intake"  # queued or being read by the model (incl. AI paused)
-    DIAGNOSTICS = "diagnostics"  # from milestone 6
+    DIAGNOSTICS = "diagnostics"  # gathering evidence, or an approved fix is running
     APPROVAL = "approval"  # waiting at a gate
     CUSTOMER = "customer"  # waiting on the customer, from milestone 7
     ENGINEERING = "engineering"  # ticket created or being created, open in Jira
@@ -30,7 +30,12 @@ _STAGE_OF = {
     "waiting_approval": Stage.APPROVAL,
     "approved": Stage.ENGINEERING,
     "ticket_created": Stage.ENGINEERING,
+    "waiting_ops": Stage.DIAGNOSTICS,
+    "fix_approved": Stage.DIAGNOSTICS,
+    "fix_rejected": Stage.ENGINEERING,  # still open in Jira; a person takes it from here
+    "fix_failed": Stage.ENGINEERING,
 }
+RESOLVED = "resolved"  # fix ran and the health re-check passed
 
 
 @dataclass(slots=True)
@@ -73,21 +78,28 @@ class StageCount:
     note: str = ""
 
 
-def stage_counts(cases: list[Case], *, resolved_today: int | None = None) -> list[StageCount]:
+def stage_counts(cases: list[Case], *, today: datetime | None = None) -> list[StageCount]:
     counts = {s: 0 for s in Stage}
-    paused = 0
+    paused = no_evidence = resolved = 0
     for case in cases:
         counts[case.stage] += 1
         paused += case.status == "waiting_llm"
+        no_evidence += case.status == "waiting_ops"
+        resolved += bool(case.status == RESOLVED and today and case.updated_at and case.updated_at >= today)
     return [
         StageCount(
             Stage.INTAKE, "Intake", counts[Stage.INTAKE], f"{paused} paused for the AI" if paused else ""
         ),
-        StageCount(Stage.DIAGNOSTICS, "Diagnostics", None, "from milestone 6"),
+        StageCount(
+            Stage.DIAGNOSTICS,
+            "Diagnostics",
+            counts[Stage.DIAGNOSTICS],
+            f"{no_evidence} waiting for evidence" if no_evidence else "",
+        ),
         StageCount(Stage.APPROVAL, "Waiting for approval", counts[Stage.APPROVAL]),
         StageCount(Stage.CUSTOMER, "Waiting on customer", None, "from milestone 7"),
         StageCount(Stage.ENGINEERING, "With engineering", counts[Stage.ENGINEERING], "open in Jira"),
-        StageCount(Stage.CLOSED, "Resolved today", resolved_today, "needs Jira status sync"),
+        StageCount(Stage.CLOSED, "Resolved today", resolved, "by an approved fix (Jira sync later)"),
     ]
 
 

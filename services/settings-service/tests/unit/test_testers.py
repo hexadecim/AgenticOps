@@ -177,3 +177,23 @@ async def test_imap_unreachable_counts_against_breaker() -> None:
     tester = ImapTester(registry.get("probe-mail"), imap_factory=refuse)
     report = await tester.test(IMAP, {"password": "x"})
     assert not report.ok and report.summary.startswith("Cannot reach the IMAP server imap.acme.eu:993")
+
+
+@respx.mock
+async def test_ops_tester_checks_each_probe_target() -> None:
+    from opspilot_common.resilience import ResilienceRegistry, ResilientHttpClient
+    from settings_service.adapters.outbound.testers.ops import OpsTester
+
+    respx.get("https://portal.example.com/health").mock(return_value=httpx.Response(200))
+    respx.get("https://login.example.com/health").mock(return_value=httpx.Response(503))
+    tester = OpsTester(ResilientHttpClient.from_registry(ResilienceRegistry(), "probe-ops"))
+    report = await tester.test({"probe_targets": ""}, {})
+    assert report.ok and [c.name for c in report.checks] == ["Executor", "Probes"]
+    report = await tester.test(
+        {"probe_targets": "Portal=https://portal.example.com/health, Login=https://login.example.com/health"},
+        {},
+    )
+    assert not report.ok
+    checks = {c.name: c for c in report.checks}
+    assert checks["Portal"].ok and not checks["Login"].ok
+    assert not (await tester.test({"probe_targets": "Portal=ftp://x"}, {})).ok

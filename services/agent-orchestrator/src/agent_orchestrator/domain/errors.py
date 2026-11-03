@@ -27,3 +27,12 @@ class StopRunError(AgentError):
 
 class ContextUnavailableError(AgentError):
     """jira-connector could not search; duplicate detection is advisory, so the run continues without it."""
+
+
+class OpsUnavailableError(AgentError):
+    """ops-service cannot give evidence right now: park as `waiting_ops`. No fix is proposed or verified
+    without fresh evidence."""
+
+
+class DiagnosisUnusableError(AgentError):
+    """The model's fix choice could not be read even after a retry: the run ends without a proposal."""

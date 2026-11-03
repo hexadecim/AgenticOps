@@ -59,7 +59,7 @@ async def test_save_read_test_and_secrets_never_leave(api) -> None:  # type: ign
     client, container = api
     admin = bearer(Role.ADMIN)
     sections = (await client.get("/v1/sections", headers=admin)).json()
-    assert [s["section"]["id"] for s in sections] == ["mailbox", "jira", "llm"]
+    assert [s["section"]["id"] for s in sections] == ["mailbox", "jira", "llm", "ops"]
     assert sections[2]["values"]["model"] == "deepseek-r1:8b"  # defaults shown before first save
 
     r = await client.put(

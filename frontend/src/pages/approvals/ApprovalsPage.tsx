@@ -17,6 +17,9 @@ function outcomeText(a: ApprovalSummary): string {
     case "linked": return `Approved · linked to ${a.jira_key}`;
     case "ticket_failed": return `Approved · Jira refused: ${a.outcome_detail ?? ""}`;
     case "ticket_pending": return "Approved · ticket creation pending";
+    case "fix_pending": return "Approved · fix running";
+    case "fix_done": return `Approved · fix ran${a.jira_key ? ` for ${a.jira_key}` : ""}`;
+    case "fix_failed": return `Approved · not run: ${a.outcome_detail ?? ""}`;
     default: return a.status === "approved" ? "Approved" : a.detail;
   }
 }
@@ -121,7 +124,12 @@ export function ApprovalsPage() {
             </span>
             <span className="mono" style={{ fontSize: 13 }}>{a.site ?? "–"}</span>
             <span>{a.severity ? <span className={`badge mono ${SEVERITY_BADGE[a.severity]}`}>{a.severity}</span> : "–"}</span>
-            <span style={{ fontSize: 14 }}>{waitingFor(tab === "decided" ? a.decided_at ?? a.requested_at : a.requested_at, now)}</span>
+            <span style={{ fontSize: 14 }}>
+              {waitingFor(tab === "decided" ? a.decided_at ?? a.requested_at : a.requested_at, now)}
+              {tab !== "decided" && a.reminders > 0 && (
+                <span className="badge badge-warn" style={{ marginLeft: 6 }} title={`${a.reminders} reminder(s) sent`}>reminded</span>
+              )}
+            </span>
             <span style={{ fontSize: 14, color: "var(--ink-2)" }}>{tab === "decided" ? (a.decided_by_role ? ROLE_LABELS[a.decided_by_role] : "–") : a.approver}</span>
           </Link>
         ))}

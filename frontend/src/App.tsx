@@ -10,10 +10,10 @@ import { ComingSoon } from "./pages/ComingSoon";
 import { ApprovalsPage } from "./pages/approvals/ApprovalsPage";
 import { AuditPage } from "./pages/audit/AuditPage";
 import { DashboardPage } from "./pages/dashboard/DashboardPage";
-import { ApproveTicketPage } from "./pages/approvals/ApproveTicketPage";
+import { ApprovalPage } from "./pages/approvals/ApprovalPage";
 import { LoginPage } from "./pages/LoginPage";
 
-function Protected({ title, role, children }: { title: string; role?: Role; children: ReactNode }) {
+function Protected({ title, role, children, shell = true }: { title: string; role?: Role; children: ReactNode; shell?: boolean }) {
   const { user, loading } = useSession();
   const location = useLocation();
   if (loading) return <div className="row muted" style={{ padding: 40 }}><span className="spinner" />Loading…</div>;
@@ -25,7 +25,7 @@ function Protected({ title, role, children }: { title: string; role?: Role; chil
       </AppShell>
     );
   }
-  return <AppShell title={title}>{children}</AppShell>;
+  return shell ? <AppShell title={title}>{children}</AppShell> : <>{children}</>;
 }
 
 export function App() {
@@ -35,7 +35,7 @@ export function App() {
       <Route path="/sign-in" element={!loading && user ? <Navigate to="/" replace /> : <LoginPage />} />
       <Route path="/" element={<Navigate to={user?.roles.includes("admin") ? "/admin/users" : "/approvals"} replace />} />
       <Route path="/approvals" element={<Protected title="Approvals"><ApprovalsPage /></Protected>} />
-      <Route path="/approvals/:id" element={<Protected title="Approvals · Create ticket"><ApproveTicketPage /></Protected>} />
+      <Route path="/approvals/:id" element={<Protected title="Approvals" shell={false}><ApprovalPage /></Protected>} />
       <Route path="/dashboard" element={<Protected title="Dashboard"><DashboardPage /></Protected>} />
       <Route path="/audit" element={<Protected title="Audit log"><AuditPage /></Protected>} />
       <Route path="/privacy" element={<Protected title="Privacy and data requests"><ComingSoon title="Privacy and data requests" icon="shield" milestone="milestone 8"

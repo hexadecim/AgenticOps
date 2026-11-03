@@ -1,4 +1,4 @@
-"""Clients for privacy-service and jira-connector (service tokens, circuit breakers)."""
+"""Clients for privacy-service, jira-connector and ops-service (service tokens, circuit breakers)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,12 @@ from opspilot_common.auth import ServiceTokenIssuer
 from opspilot_common.logging import correlation_id
 from opspilot_common.resilience import ResilienceError, ResilientHttpClient
 
-from ...domain.errors import ContextUnavailableError, PrivacyUnavailableError, StopRunError
+from ...domain.errors import (
+    ContextUnavailableError,
+    OpsUnavailableError,
+    PrivacyUnavailableError,
+    StopRunError,
+)
 
 
 def _headers(tokens: ServiceTokenIssuer) -> dict[str, str]:
@@ -62,3 +67,34 @@ class JiraContextClient:
             message = (response.json() if response.content else {}).get("message", response.status_code)
             raise ContextUnavailableError(str(message))
         return dict(response.json())
+
+
+class OpsClient:
+    """Evidence for diagnostics and the health re-check. Unavailable ⇒ the run waits: no fix is proposed or
+    declared working without fresh evidence."""
+
+    def __init__(self, http: ResilientHttpClient, tokens: ServiceTokenIssuer) -> None:
+        self._http, self._tokens = http, tokens
+
+    async def _call(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        try:
+            response = await self._http.request(method, path, headers=_headers(self._tokens), **kwargs)
+        except ResilienceError as exc:
+            raise OpsUnavailableError(f"ops-service is unavailable: {exc}") from exc
+        body = response.json() if response.content else {}
+        if response.status_code != 200:
+            raise OpsUnavailableError(
+                f"ops-service answered {response.status_code}: {body.get('message', '')}"
+            )
+        return dict(body)
+
+    async def diagnose(
+        self, *, text: str, site: str | None, asset: str | None, run_id: str, thread_id: str
+    ) -> dict[str, Any]:
+        body = {"text": text[:4000], "site": site, "asset": asset, "run_id": run_id, "thread_id": thread_id}
+        # Reading evidence has no side effect beyond probe events, so a retry is safe.
+        return await self._call("POST", "/internal/v1/diagnostics", json=body, idempotency_key=run_id)
+
+    async def probes(self, region: str | None, *, run_id: str, thread_id: str) -> list[dict[str, Any]]:
+        params = {k: v for k, v in (("region", region), ("run_id", run_id), ("thread_id", thread_id)) if v}
+        return list((await self._call("GET", "/internal/v1/probes", params=params)).get("probes", []))

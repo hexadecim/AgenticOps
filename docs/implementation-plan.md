@@ -6,7 +6,7 @@ decisions: [adr/](adr/). Wireframe: https://claude.ai/artifact/9MVMvgd7L4LeEs1yP
 
 **Legend:** `[x]` done and verified · `[~]` partly done (see note) · `[ ]` not started
 
-_Last updated: 2026-10-08_
+_Last updated: 2026-11-03_
 
 ## Summary
 
@@ -19,12 +19,12 @@ _Last updated: 2026-10-08_
 | 3 | privacy-service + audit-service | ✅ Done | 36 service tests (incl. real Presidio) · live sign-in in audit API, tampering rejected, fail-closed with mail-service down |
 | 4 | Agent core + T1 gate → Jira (**MVP**) | ✅ Done | 31 new service tests · live: 2 emails → Approvals → approved in the UI → KAN-18, KAN-19 created; audit chain complete |
 | 5 | reporting-service, Dashboard, Audit log UI | ✅ Done | 5 service + 3 shared + 1 gateway tests · live: dashboard from real history, breaker trip/recovery shown |
-| 6 | ops-service, diagnostics, T2 production-fix gate | ⬜ Next | – |
+| 6 | ops-service, diagnostics, T2 production-fix gate | 🟨 Built, UI walk-through pending | 18 ops + 10 orchestrator + 3 approval + 1 gateway tests · live: pgvector index, masked logs, deepseek picks the RB-07 restart |
 | 7 | Comms agent, T3 customer-message gate, outbound email | ⬜ | – |
 | 8 | Privacy / GDPR screens and retention jobs | ⬜ | – |
 | 9 | Hardening: chaos tests, tracing, load, production config | ⬜ | – |
 
-Progress: **7 of 11** milestones done (0–5; 4 = **MVP**). 212 automated tests.
+Progress: **7 of 11** milestones done (0–5; 4 = **MVP**), milestone 6 built. 248 automated tests.
 
 ## Dev environment (current state)
 
@@ -376,14 +376,23 @@ ingestion itself was verified in milestone 2.)
 - [ ] Incident end time (today all system events after the start show on open incidents)
 - [ ] A "rebuild read model" command (the backfill was a manual outbox replay)
 
-## Milestone 6 — ops-service + T2 production fix ⬜
+## Milestone 6 — ops-service + T2 production fix 🟨
 
-- [ ] Health probes, masked log search, runbook RAG (pgvector + `nomic-embed-text`)
-- [ ] Allow-listed actions, mock executor by default (`restart_service`)
-- [ ] Diagnostics node proposes fixes only from the allow-list; health re-check after running
-- [ ] T2 gate: Support agent only, editable parameters, 15-minute reminder, "Evidence unavailable" when
-      ops-service circuit is open (Approve disabled)
-- [ ] UI: Approve production fix screen
+Design: [ADR-0006](adr/0006-diagnostics-and-fix-gate.md). Mock environment, runbooks, logs: `deploy/ops/`.
+
+- [x] Health probes (mock environment + optional HTTP targets, one circuit each; `probe.status` on change), masked
+      log search, runbook RAG (pgvector + `nomic-embed-text`, keyword fallback) — live: 3 runbooks / 13 chunks
+      indexed, RB-07 ranked first (0.886), no e-mail/IP/phone in returned lines
+- [x] Allow-listed actions (`restart_service`, `retry_failed_uploads`), mock executor by default, idempotent per
+      approval, re-validated and fresh probes before running — unit/integration tests
+- [x] Diagnostics node proposes fixes only from the allow-list (model picks a number or `none`); health re-check
+      after running → `resolved` / `fix_failed` — tests; live: deepseek chose `restart_service(upload-worker)`
+- [x] T2 gate: Support agent only, parameter edits limited to offered choices, reminder every 15 min, "Evidence
+      unavailable" + Approve disabled when ops-service is down (gateway 503) — tests
+- [x] Admin › Integrations › Ops section (executor, enabled actions, folders, HTTP probes) + connection test
+- [~] UI: Approve production fix screen — built and type-checked; walk-through in the browser not done yet
+- [ ] Live end-to-end in the UI: T1 approve → Jira → diagnostics → T2 approve as agent → resolved
+- Reject at T2 ends the run with the reason; continuing to Comms is milestone 7.
 
 ## Milestone 7 — Comms + T3 customer message ⬜
 
@@ -437,5 +446,8 @@ ingestion itself was verified in milestone 2.)
 | 19 | deepseek-r1:8b answers vary at temperature 0.6 | Severity and wording can differ between runs | Approver checks ("AI-generated"); edit-before-approve UI is deferred |
 | 20 | Two synthetic test emails were added for milestone 4 | One was stored directly in `mail.emails` (not via a mailbox) | Test data; removed by the 30-day retention job |
 | 21 | Live-event queue `api-gateway.live` is durable | If the gateway is down for long, notifications pile up in RabbitMQ | Use an exclusive auto-delete queue per replica (milestone 9) |
+| 22 | Service tests run on SQLite, so Postgres-only paths (pgvector `<=>`) are untested in CI | A pgvector query bug reached the live stack in M6 (fixed) | Integration suite on real Postgres (milestone 9) |
+| 23 | Real Gmail backlog after the stack was off since 21 Oct: ~550 runs queued at ~70 s each | Takes hours; synthetic tests had to be moved to the front of the queue | Dedicated support mailbox or sender allow-list (see #18) |
+| 24 | deepseek-r1:8b fix choice can take ~4 min (reasoning hits the budget, then a retry without it) | T2 requests appear minutes after the ticket | Acceptable (background); consider thinking off for diagnostics |
 | 22 | Breaker events are published directly (not via an outbox) | A transition while RabbitMQ is down is not reported (still visible in Redis/metrics/logs) | Acceptable: health is a live signal; the System health page reads Redis |
 | 23 | Reporting has no event store | Read models built before a consumer existed need an outbox replay | Add an event archive or rebuild command in milestone 9 |

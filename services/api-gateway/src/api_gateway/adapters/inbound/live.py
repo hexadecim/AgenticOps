@@ -12,7 +12,7 @@ from typing import Any
 
 from opspilot_common.events import EventEnvelope
 
-RELAYED = ["approval.#", "run.#", "jira.issue.#", "breaker.#"]
+RELAYED = ["approval.#", "run.#", "jira.issue.#", "breaker.#", "action.#"]
 _IDS = ("approval_id", "run_id", "thread_id", "issue_key", "status", "gate", "dependency", "new")
 
 

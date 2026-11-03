@@ -18,6 +18,7 @@ from .adapters.outbound.testers.graph import GraphTester
 from .adapters.outbound.testers.imap import ImapTester
 from .adapters.outbound.testers.jira import JiraTester
 from .adapters.outbound.testers.ollama import OllamaTester
+from .adapters.outbound.testers.ops import OpsTester
 from .application import GetSection, ResolveSection, RunConnectionTest, SaveSection
 from .config import Settings
 from .ports import Clock, ConnectionTester, UnitOfWork
@@ -45,11 +46,12 @@ def default_testers(registry: ResilienceRegistry) -> tuple[dict[str, ConnectionT
     def http(name: str) -> ResilientHttpClient:
         return ResilientHttpClient.from_registry(registry, name, follow_redirects=False)
 
-    jira, google, microsoft, ollama = (
+    jira, google, microsoft, ollama, ops = (
         http("probe-jira"),
         http("probe-google"),
         http("probe-microsoft"),
         http("probe-ollama"),
+        http("probe-ops"),
     )
     testers: dict[str, ConnectionTester] = {
         "mailbox:imap": ImapTester(registry.get("probe-mail")),
@@ -57,8 +59,9 @@ def default_testers(registry: ResilienceRegistry) -> tuple[dict[str, ConnectionT
         "mailbox:graph": GraphTester(microsoft),
         "jira": JiraTester(jira),
         "llm": OllamaTester(ollama),
+        "ops": OpsTester(ops),
     }
-    return testers, [c.aclose for c in (jira, google, microsoft, ollama)]
+    return testers, [c.aclose for c in (jira, google, microsoft, ollama, ops)]
 
 
 def build_container(

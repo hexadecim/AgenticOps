@@ -52,6 +52,7 @@ class OrchestratorTables:
             Column("jira_key", String(40), nullable=True),
             Column("decision", JSON, nullable=True),
             Column("attempts", Integer, nullable=False),
+            Column("results", JSON, nullable=True),
         )
         self.outbox = outbox_table(self.metadata)
         self.inbox = inbox_table(self.metadata)
@@ -75,6 +76,7 @@ def _row(r: Run) -> dict[str, Any]:
         "jira_key": r.jira_key,
         "decision": r.decision,
         "attempts": r.attempts,
+        "results": r.results or None,
     }
 
 
@@ -93,6 +95,7 @@ def _run(r: Any) -> Run:
         jira_key=r.jira_key,
         decision=r.decision,
         attempts=r.attempts,
+        results=dict(r.results or {}),
     )
 
 
@@ -229,3 +232,9 @@ class SqlThreadTickets:
             return await SqlRunRepository(session, self._tables).ticket_for_thread(
                 thread_id, exclude_run=exclude_run
             )
+
+    async def reporters(self, jira_key: str) -> int:
+        async with self._sessions() as session:
+            t = self._tables.runs
+            count = (await session.execute(select(func.count()).where(t.c.jira_key == jira_key))).scalar_one()
+        return max(1, int(count))

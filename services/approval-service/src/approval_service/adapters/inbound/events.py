@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 
 from opspilot_common.events import EventEnvelope, parse_payload
 from opspilot_common.events.catalogue import (
+    ActionExecuted,
     ApprovalRequested,
     JiraIssueCreated,
     JiraIssueFailed,
@@ -13,13 +14,19 @@ from opspilot_common.events.catalogue import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...application import RecordRequest, RecordTicketOutcome
+from ...application import RecordFixOutcome, RecordRequest, RecordTicketOutcome
 
-BINDINGS = ["approval.requested", "jira.issue.created", "jira.issue.linked", "jira.issue.failed"]
+BINDINGS = [
+    "approval.requested",
+    "jira.issue.created",
+    "jira.issue.linked",
+    "jira.issue.failed",
+    "action.executed",
+]
 
 
 def on_event(
-    record_request: RecordRequest, record_outcome: RecordTicketOutcome
+    record_request: RecordRequest, record_outcome: RecordTicketOutcome, record_fix: RecordFixOutcome
 ) -> Callable[[AsyncSession, EventEnvelope], Awaitable[None]]:
     async def handle(_: AsyncSession, envelope: EventEnvelope) -> None:
         payload = parse_payload(envelope)
@@ -27,5 +34,7 @@ def on_event(
             await record_request(payload, envelope.occurred_at)
         elif isinstance(payload, JiraIssueCreated | JiraIssueLinked | JiraIssueFailed):
             await record_outcome(payload)
+        elif isinstance(payload, ActionExecuted):
+            await record_fix(payload)
 
     return handle

@@ -106,7 +106,14 @@ def _approval_decided(p: c.ApprovalDecided, e: EventEnvelope) -> Description:
     done = {"approve": "Approved", "reject": "Rejected", "send_back": "Sent back"}[verb]
     detail = f"{done} {_GATE[p.gate]}" + (f": {p.reason}" if p.reason else "")
     if p.edits:
-        changes = [f"severity → {p.edits['severity']}" if k == "severity" else k for k in sorted(p.edits)]
+        changes = [
+            f"severity → {p.edits['severity']}"
+            if k == "severity"
+            else ", ".join(f"{n} → {v}" for n, v in p.edits["params"].items())
+            if k == "params" and isinstance(p.edits.get("params"), dict)
+            else k
+            for k in sorted(p.edits)
+        ]
         detail += f" (changed: {', '.join(changes)})"
     return Description(
         Kind.HUMAN,
@@ -120,12 +127,15 @@ def _approval_decided(p: c.ApprovalDecided, e: EventEnvelope) -> Description:
 
 def _reminder(p: c.ApprovalReminder, e: EventEnvelope) -> Description:
     minutes = p.waiting_seconds // 60
+    what = f": {p.title}" if p.title else ""
     return Description(
         Kind.SYSTEM,
         "Approval service",
         "remind_approver",
-        f"{_GATE[p.gate].capitalize()} approval waiting {minutes} min",
+        f"{_GATE[p.gate].capitalize()} approval waiting {minutes} min (reminder {p.reminder}){what}",
         "No personal data",
+        p.jira_key,
+        p.thread_id,
     )
 
 
@@ -168,24 +178,28 @@ def _issue_failed(p: c.JiraIssueFailed, e: EventEnvelope) -> Description:
 
 
 def _probe(p: c.ProbeStatus, e: EventEnvelope) -> Description:
-    latency = f" in {p.latency_ms} ms" if p.latency_ms is not None else ""
+    where = f" ({p.region})" if p.region else ""
     return Description(
         Kind.SYSTEM,
         "Health",
         "probe",
-        f"{p.probe}: {'healthy' if p.ok else 'failing'}{latency}. {p.detail}",
+        f"{p.probe}{where} is {'healthy' if p.ok else 'failing'}: {p.detail}",
         "No personal data",
+        thread_id=p.thread_id,
     )
 
 
 def _action(p: c.ActionExecuted, e: EventEnvelope) -> Description:
-    params = ", ".join(str(v) for v in p.params.values())
+    params = ", ".join(f'{k}="{v}"' for k, v in p.params.items())
+    executor = f" [{p.executor}]" if p.executor else ""
     return Description(
         Kind.TOOL,
         "Ops executor",
         "run_action",
-        f"{p.action}({params}): {'done' if p.ok else 'failed'}. {p.detail}",
+        f"{p.action}({params}){executor}: {'done' if p.ok else 'not run'}. {p.detail}",
         "No personal data",
+        p.jira_key,
+        p.thread_id,
     )
 
 
