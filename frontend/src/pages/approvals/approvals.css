@@ -1,0 +1,51 @@
+/* Approvals queue and approval screens; layout and spacing follow the wireframe (Main, ApproveTicket). */
+.stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 20px; }
+.stat-label, .stat-foot { font-size: 13px; color: var(--muted); }
+.stat-value { font-size: 32px; font-weight: 600; margin-top: 4px; }
+.stat-foot { display: flex; gap: 6px; align-items: center; }
+.stat-foot.warn { color: var(--warn); }
+.stat-foot.good { color: var(--good); }
+
+.queue { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.queue-tabs { display: flex; flex-wrap: wrap; gap: 8px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+.pill-tab { min-height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font: inherit; font-size: 14px; font-weight: 500; cursor: pointer; }
+.pill-tab[aria-selected="true"] { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.queue-head, .queue-row { display: grid; grid-template-columns: 150px minmax(0, 1fr) 170px 90px 90px 130px; gap: 16px; padding: 0 20px; }
+.queue-head { padding-top: 10px; padding-bottom: 10px; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line); }
+.queue-row { align-items: center; min-height: 56px; border-bottom: 1px solid var(--line-soft); color: var(--ink); text-decoration: none; }
+.queue-row:hover { background: var(--surface-2); }
+.queue-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.queue-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.queue-title strong { font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.queue-title span { font-size: 13px; color: var(--muted); }
+.mono { font-family: "IBM Plex Mono", monospace; }
+.tier { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--muted); }
+.queue-empty { padding: 40px 20px; text-align: center; color: var(--muted); }
+
+.approve-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.email-card { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.privacy-bar { display: flex; gap: 8px; align-items: center; padding: 10px 20px; background: var(--good-soft); color: var(--good); font-size: 13px; }
+.email-meta { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px 12px; margin: 0; padding: 20px 20px 16px; font-size: 14px; border-bottom: 1px solid var(--line-soft); }
+.email-meta dt, .ticket-meta dt { color: var(--muted); }
+.email-meta dd, .ticket-meta dd { margin: 0; }
+.email-body { padding: 16px 20px; font-size: 15px; line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }
+.token { font-family: "IBM Plex Mono", monospace; font-size: 13px; }
+.removed { font-family: "IBM Plex Mono", monospace; font-size: 13px; color: var(--muted); }
+.reveal-box { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 8px; background: var(--surface-2); }
+.side { display: flex; flex-direction: column; gap: 20px; }
+.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 16px; margin: 12px 0 0; font-size: 14px; }
+.facts dt { font-size: 12px; color: var(--muted); }
+.facts dd { margin: 2px 0 0; font-weight: 500; }
+.ticket-meta { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 8px 12px; margin: 0; font-size: 14px; }
+.note { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: 8px; background: var(--surface-2); font-size: 13px; color: var(--ink-2); }
+.decision-bar { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; min-height: 76px; padding: 12px 20px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.decision-bar .grow { flex-grow: 1; }
+
+@media (max-width: 1000px) {
+  .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .approve-grid { grid-template-columns: minmax(0, 1fr); }
+  .queue-head { display: none; }
+  .queue-row { grid-template-columns: minmax(0, 1fr) auto; padding: 12px 20px; }
+  .queue-row > :nth-child(3), .queue-row > :nth-child(6) { display: none; }
+}

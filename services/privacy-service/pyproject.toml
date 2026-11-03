@@ -1,0 +1,35 @@
+[project]
+name = "privacy-service"
+version = "0.1.0"
+description = "OpsPilot privacy: pseudonymisation (Presidio + patterns), encrypted token vault, audited reveal"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "opspilot-common[fastapi]",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.32",
+  "pydantic>=2.9",
+  "pydantic-settings>=2.6",
+  "sqlalchemy[asyncio]>=2.0.36",
+  "asyncpg>=0.30",
+  "alembic>=1.14",
+  "cryptography>=43",
+  "httpx>=0.27",
+  "redis>=5.2",
+  "presidio-analyzer>=2.2.360",
+  "spacy>=3.8,<3.9",
+  "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
+  "de-core-news-sm @ https://github.com/explosion/spacy-models/releases/download/de_core_news_sm-3.8.0/de_core_news_sm-3.8.0-py3-none-any.whl",
+]
+
+[tool.uv.sources]
+opspilot-common = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/privacy_service"]

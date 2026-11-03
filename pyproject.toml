@@ -1,0 +1,64 @@
+[project]
+name = "opspilot"
+version = "0.1.0"
+description = "OpsPilot: agentic email-to-incident platform (workspace root)"
+requires-python = ">=3.12,<3.13"
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = [
+  "libs/*",
+  "services/identity-service",
+  "services/api-gateway",
+  "services/settings-service",
+  "services/mail-service",
+  "services/privacy-service",
+  "services/audit-service",
+  "services/approval-service",
+  "services/jira-connector",
+  "services/agent-orchestrator",
+  "services/reporting-service",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+  "pytest-cov>=5.0",
+  "respx>=0.21",
+  "fakeredis>=2.26",
+  "aiosqlite>=0.20",
+  "asyncpg>=0.30",
+  "ruff>=0.8",
+  "mypy>=1.13",
+  "import-linter>=2.1",
+  "types-pyyaml",
+  "fastapi>=0.115",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "ASYNC", "RUF", "N"]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/*" = ["E501"]
+# FastAPI dependency aliases (CurrentUser = Annotated[...]) are type names, built inside router factories.
+"**/adapters/inbound/http.py" = ["N806"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Header", "fastapi.Cookie", "fastapi.Body"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

@@ -1,0 +1,36 @@
+/* Dashboard; layout follows the wireframe (Dashboard.dc.html). */
+.dash-section { display: flex; flex-direction: column; gap: 12px; }
+.dash-section h2, .dash-card h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.health-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; }
+.health { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; }
+.health.down { border-color: var(--crit-line); }
+.health-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.health-name { font-size: 15px; font-weight: 600; }
+.health-detail { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--muted); }
+.stage-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px; }
+.stage { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; }
+.stage-label { font-size: 13px; color: var(--muted); }
+.stage-count { font-size: 28px; font-weight: 600; margin-top: 2px; }
+.stage-note { font-size: 12px; color: var(--muted); }
+.dash-bottom { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 20px; }
+.dash-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 20px; display: flex; flex-direction: column; gap: 8px; }
+.dash-card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.tl-row { display: grid; grid-template-columns: 56px 130px minmax(0, 1fr); gap: 12px; align-items: baseline; padding: 7px 0; border-top: 1px solid var(--line-soft); font-size: 14px; overflow-wrap: anywhere; }
+.tl-row.system { color: var(--warn); }
+.tl-time { font-family: "IBM Plex Mono", monospace; font-size: 13px; color: var(--ink-2); }
+.tl-actor { font-size: 13px; color: var(--muted); }
+.sla-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line-soft); font-size: 14px; }
+.sla-label { color: var(--ink-2); }
+.sla-value { font-size: 18px; font-weight: 600; white-space: nowrap; }
+.sla-value.breached { color: var(--warn); }
+.sla-detail { font-size: 13px; color: var(--muted); font-weight: 400; }
+@media (max-width: 1100px) {
+  .health-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .stage-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .dash-bottom { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .health-grid, .stage-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tl-row { grid-template-columns: 48px minmax(0, 1fr); }
+  .tl-actor { grid-column: 2; }
+}

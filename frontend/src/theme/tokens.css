@@ -1,0 +1,120 @@
+/* Design tokens copied verbatim from the OpsPilot wireframe (Login.dc.html). Do not hand-edit values;
+   update them from the wireframe so the app and the design stay identical. */
+
+:root,
+:root[data-theme="light"],
+:root[data-theme="system"] {
+  --bg:#F4F5F7;
+  --surface:#FFFFFF;
+  --surface-2:#EEF0F3;
+  --line:#E2E5EA;
+  --line-soft:#ECEEF2;
+  --line-strong:#C8CDD5;
+  --ink:#0E1621;
+  --ink-2:#3B4552;
+  --muted:#586272;
+  --accent:#4F46E5;
+  --accent-hover:#4338CA;
+  --accent-soft:#EEEFFE;
+  --on-accent:#FFFFFF;
+  --good:#13703A;
+  --good-soft:#E6F5EB;
+  --warn:#A34A06;
+  --warn-soft:#FDF2E2;
+  --crit:#C0262D;
+  --crit-soft:#FDECEC;
+  --crit-line:#F2B8BA;
+  --msg:#0F766E;
+  --msg-soft:#E2F4F1;
+  --neutral-soft:#EDEFF2;
+  --row-hover:#F3F4FF;
+  --focus:#4F46E5;
+  --chrome:#0E1621;
+  --chrome-2:#1C2533;
+  --chrome-line:#2A3444;
+  --chrome-ink:#E6EAF0;
+  --chrome-ink-2:#C4CBD5;
+  --chrome-muted:#97A1AF;
+  --chrome-strong:#FFFFFF;
+  --chrome-accent:#A5B4FC;
+  --chrome-warn:#FBBF24;
+  color-scheme:light;
+}
+
+:root[data-theme="dark"] {
+  --bg:#0A0E14;
+  --surface:#111821;
+  --surface-2:#18212C;
+  --line:#232D3A;
+  --line-soft:#1C2530;
+  --line-strong:#344052;
+  --ink:#E7EBF0;
+  --ink-2:#C1C8D2;
+  --muted:#98A2B0;
+  --accent:#8B93FF;
+  --accent-hover:#A9AFFF;
+  --accent-soft:#1E2246;
+  --on-accent:#0A0E14;
+  --good:#4ADE80;
+  --good-soft:#0F2A1A;
+  --warn:#FBBF24;
+  --warn-soft:#2B2110;
+  --crit:#F87171;
+  --crit-soft:#2E1517;
+  --crit-line:#5B2528;
+  --msg:#2DD4BF;
+  --msg-soft:#0D2A27;
+  --neutral-soft:#1C2530;
+  --row-hover:#171E33;
+  --focus:#A9AFFF;
+  --chrome:#06090D;
+  --chrome-2:#161D27;
+  --chrome-line:#222B37;
+  --chrome-ink:#E6EAF0;
+  --chrome-ink-2:#C4CBD5;
+  --chrome-muted:#8E98A6;
+  --chrome-strong:#FFFFFF;
+  --chrome-accent:#A9AFFF;
+  --chrome-warn:#FBBF24;
+  color-scheme:dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"] {
+    --bg:#0A0E14;
+    --surface:#111821;
+    --surface-2:#18212C;
+    --line:#232D3A;
+    --line-soft:#1C2530;
+    --line-strong:#344052;
+    --ink:#E7EBF0;
+    --ink-2:#C1C8D2;
+    --muted:#98A2B0;
+    --accent:#8B93FF;
+    --accent-hover:#A9AFFF;
+    --accent-soft:#1E2246;
+    --on-accent:#0A0E14;
+    --good:#4ADE80;
+    --good-soft:#0F2A1A;
+    --warn:#FBBF24;
+    --warn-soft:#2B2110;
+    --crit:#F87171;
+    --crit-soft:#2E1517;
+    --crit-line:#5B2528;
+    --msg:#2DD4BF;
+    --msg-soft:#0D2A27;
+    --neutral-soft:#1C2530;
+    --row-hover:#171E33;
+    --focus:#A9AFFF;
+    --chrome:#06090D;
+    --chrome-2:#161D27;
+    --chrome-line:#222B37;
+    --chrome-ink:#E6EAF0;
+    --chrome-ink-2:#C4CBD5;
+    --chrome-muted:#8E98A6;
+    --chrome-strong:#FFFFFF;
+    --chrome-accent:#A9AFFF;
+    --chrome-warn:#FBBF24;
+    color-scheme:dark;
+  }
+}

@@ -1,0 +1,258 @@
+# OpsPilot stack. Milestone 0 ships the shared infrastructure; each milestone appends its services below
+# (see CLAUDE.md §6 "Add a service"). Ollama runs on the host, not in compose.
+name: opspilot
+
+x-service-env: &service-env
+  DATABASE_URL: postgresql+asyncpg://opspilot:${POSTGRES_PASSWORD:-opspilot}@postgres:5432/opspilot
+  RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-opspilot}:${RABBITMQ_DEFAULT_PASS:-opspilot}@rabbitmq:5672/
+  REDIS_URL: redis://redis:6379/0
+  JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+  RESILIENCE_CONFIG: /etc/opspilot/resilience.yaml
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: opspilot
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-opspilot}
+      POSTGRES_DB: opspilot
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opspilot -d opspilot"]
+      interval: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-opspilot}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-opspilot}
+    ports: ["5672:5672", "15672:15672"]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      retries: 20
+
+  # Fault injection for circuit-breaker tests: services reach Jira/Ollama through these proxies,
+  # and tests add latency/timeouts/resets via the toxiproxy API on :8474.
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    command: ["-host=0.0.0.0", "-config=/config/toxiproxy.json"]
+    ports: ["8474:8474", "21434:21434"]
+    volumes:
+      - ./toxiproxy.json:/config/toxiproxy.json:ro
+    extra_hosts: ["host.docker.internal:host-gateway"]
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports: ["16686:16686", "4317:4317"]
+
+  identity-service:
+    build: { context: .., dockerfile: services/identity-service/Dockerfile }
+    environment:
+      <<: *service-env
+      DATABASE_URL: postgresql+asyncpg://identity_svc:identity_dev_password@postgres:5432/opspilot
+      FERNET_KEY: ${FERNET_KEY:?set FERNET_KEY in .env}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+    volumes: ["./resilience.yaml:/etc/opspilot/resilience.yaml:ro"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health/live')"]
+      interval: 10s
+      retries: 12
+
+  api-gateway:
+    build: { context: .., dockerfile: services/api-gateway/Dockerfile }
+    environment:
+      <<: *service-env
+      IDENTITY_URL: http://identity-service:8001
+      SETTINGS_URL: http://settings-service:8002
+      MAIL_URL: http://mail-service:8003
+      PRIVACY_URL: http://privacy-service:8004
+      AUDIT_URL: http://audit-service:8005
+      APPROVAL_URL: http://approval-service:8006
+      ORCHESTRATOR_URL: http://agent-orchestrator:8008
+      REPORTING_URL: http://reporting-service:8009
+      # nginx overwrites X-Forwarded-For with the real client address; trust it so rate limits are per person.
+      FORWARDED_ALLOW_IPS: "*"
+    volumes: ["./resilience.yaml:/etc/opspilot/resilience.yaml:ro"]
+    # Bound to localhost only: anything reachable from outside must come through nginx (web).
+    ports: ["127.0.0.1:8000:8000"]
+    depends_on:
+      redis: { condition: service_healthy }
+      identity-service: { condition: service_healthy }
+      settings-service: { condition: service_healthy }
+      mail-service: { condition: service_healthy }
+      privacy-service: { condition: service_healthy }
+      audit-service: { condition: service_healthy }
+      approval-service: { condition: service_healthy }
+      agent-orchestrator: { condition: service_healthy }
+      reporting-service: { condition: service_healthy }
+
+  settings-service:
+    build: { context: .., dockerfile: services/settings-service/Dockerfile }
+    environment:
+      <<: *service-env
+      DATABASE_URL: postgresql+asyncpg://settings_svc:settings_dev_password@postgres:5432/opspilot
+      FERNET_KEY: ${FERNET_KEY:?set FERNET_KEY in .env}
+    volumes: ["./resilience.yaml:/etc/opspilot/resilience.yaml:ro"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health/live')"]
+      interval: 10s
+      retries: 12
+
+  mail-service:
+    build: { context: .., dockerfile: services/mail-service/Dockerfile }
+    environment:
+      <<: *service-env
+      DATABASE_URL: postgresql+asyncpg://mail_svc:mail_dev_password@postgres:5432/opspilot
+      SETTINGS_URL: http://settings-service:8002
+      # One poller per deployment; set false on extra replicas (the dedupe key keeps a second one harmless).
+      POLLER_ENABLED: "true"
+    volumes: ["./resilience.yaml:/etc/opspilot/resilience.yaml:ro"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      settings-service: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health/live')"]
+      interval: 10s
+      retries: 12
+
+  privacy-service:
+    build: { context: .., dockerfile: services/privacy-service/Dockerfile }
+    environment:
+      <<: *service-env
+      DATABASE_URL: postgresql+asyncpg://privacy_svc:privacy_dev_password@postgres:5432/opspilot
+      FERNET_KEY: ${FERNET_KEY:?set FERNET_KEY in .env}
+      MAIL_URL: http://mail-service:8003
+    volumes: ["./resilience.yaml:/etc/opspilot/resilience.yaml:ro"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      mail-service: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/health/live')"]
+      interval: 10s
+      retries: 12
+
+  # Consumes every event; the entries table rejects UPDATE/DELETE/TRUNCATE (trigger, migration 0001).
+  audit-service:
+    build: { context: .., dockerfile: services/audit-service/Dockerfile }
+    environment:
+      <<: *service-env
+      DATABASE_URL: postgresql+asyncpg://audit_svc:audit_dev_password@postgres:5432/opspilot
+    volumes: ["./resilience.yaml:/etc/opspilot/resilience.yaml:ro"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8005/health/live')"]
+      interval: 10s
+      retries: 12
+
+  approval-service:
+    build: { context: .., dockerfile: services/approval-service/Dockerfile }
+    environment:
+      <<: *service-env
+      DATABASE_URL: postgresql+asyncpg://approval_svc:approval_dev_password@postgres:5432/opspilot
+    volumes: ["./resilience.yaml:/etc/opspilot/resilience.yaml:ro"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      settings-service: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8006/health/live')"]
+      interval: 10s
+      retries: 12
+
+  # Creates approved incidents in Jira Cloud (settings from Admin > Integrations) through a job outbox.
+  jira-connector:
+    build: { context: .., dockerfile: services/jira-connector/Dockerfile }
+    environment:
+      <<: *service-env
+      DATABASE_URL: postgresql+asyncpg://jira_svc:jira_dev_password@postgres:5432/opspilot
+      SETTINGS_URL: http://settings-service:8002
+    volumes: ["./resilience.yaml:/etc/opspilot/resilience.yaml:ro"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      settings-service: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8007/health/live')"]
+      interval: 10s
+      retries: 12
+
+  # LangGraph agents on the host's Ollama (deepseek-r1:8b); checkpoints in the orchestrator schema.
+  agent-orchestrator:
+    build: { context: .., dockerfile: services/agent-orchestrator/Dockerfile }
+    environment:
+      <<: *service-env
+      DATABASE_URL: postgresql+asyncpg://orchestrator_svc:orchestrator_dev_password@postgres:5432/opspilot
+      SETTINGS_URL: http://settings-service:8002
+      PRIVACY_URL: http://privacy-service:8004
+      JIRA_CONNECTOR_URL: http://jira-connector:8007
+    volumes: ["./resilience.yaml:/etc/opspilot/resilience.yaml:ro"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      settings-service: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8008/health/live')"]
+      interval: 10s
+      retries: 12
+
+  # Dashboard read models, built only from events (consumes everything, publishes nothing).
+  reporting-service:
+    build: { context: .., dockerfile: services/reporting-service/Dockerfile }
+    environment:
+      <<: *service-env
+      DATABASE_URL: postgresql+asyncpg://reporting_svc:reporting_dev_password@postgres:5432/opspilot
+    volumes: ["./resilience.yaml:/etc/opspilot/resilience.yaml:ro"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8009/health/live')"]
+      interval: 10s
+      retries: 12
+
+  # Development mailbox (IMAP 3143, SMTP 3025, no TLS). Any user name logs in; the password must equal it.
+  devmail:
+    image: greenmail/standalone:2.1.2
+    environment:
+      GREENMAIL_OPTS: >-
+        -Dgreenmail.setup.test.imap -Dgreenmail.setup.test.smtp -Dgreenmail.hostname=0.0.0.0
+        -Dgreenmail.users=support:support-dev-pass@opspilot.local -Dgreenmail.users.login=email
+    ports: ["127.0.0.1:3025:3025", "127.0.0.1:3143:3143"]
+
+  web:
+    build: { context: ../frontend }
+    ports: ["8080:80"]
+    depends_on: [api-gateway]
+
+volumes:
+  pgdata:

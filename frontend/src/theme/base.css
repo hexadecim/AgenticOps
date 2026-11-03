@@ -1,0 +1,39 @@
+/* Page basics and motion, from the wireframe's <helmet> styles. */
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent); }
+a:hover { color: var(--accent-hover); }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
+.mono { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+@keyframes op-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes op-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes op-slide { from { opacity: 0; transform: translateX(-16px); } to { opacity: 1; transform: none; } }
+.op-enter { animation: op-rise 520ms cubic-bezier(.2,.8,.2,1) both; }
+.op-fadein { animation: op-fade 400ms ease both; }
+.op-d1 { animation-delay: 70ms; } .op-d2 { animation-delay: 140ms; } .op-d3 { animation-delay: 210ms; }
+.op-d4 { animation-delay: 280ms; } .op-d5 { animation-delay: 350ms; }
+.op-press { transition: transform 120ms ease, background-color 160ms ease, box-shadow 160ms ease; }
+.op-press:hover { box-shadow: 0 4px 14px rgba(21,25,30,.12); }
+.op-press:active { transform: scale(.96); }
+.op-row { transition: background-color 160ms ease; }
+.op-row:hover { background: var(--row-hover); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

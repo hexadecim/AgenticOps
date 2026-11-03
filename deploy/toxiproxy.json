@@ -1,0 +1,8 @@
+[
+  {
+    "name": "ollama",
+    "listen": "0.0.0.0:21434",
+    "upstream": "host.docker.internal:11434",
+    "enabled": true
+  }
+]

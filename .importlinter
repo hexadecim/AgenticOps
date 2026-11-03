@@ -1,0 +1,293 @@
+[importlinter]
+root_packages =
+    opspilot_common
+    identity_service
+    api_gateway
+    settings_service
+    mail_service
+    privacy_service
+    audit_service
+    approval_service
+    jira_connector
+    agent_orchestrator
+    reporting_service
+include_external_packages = True
+
+# Shared library: resilience and events must not depend on web frameworks.
+[importlinter:contract:common-core-framework-free]
+name = Resilience and event envelopes stay framework-free
+type = forbidden
+source_modules =
+    opspilot_common.resilience
+    opspilot_common.events.envelope
+    opspilot_common.events.catalogue
+    opspilot_common.events.ports
+forbidden_modules =
+    fastapi
+    sqlalchemy
+    aio_pika
+
+# Hexagonal layers per service: outer layers may import inner ones, never the reverse.
+[importlinter:contract:identity-layers]
+name = identity-service hexagonal layers
+type = layers
+layers =
+    identity_service.main
+    identity_service.bootstrap
+    identity_service.adapters
+    identity_service.application
+    identity_service.ports
+    identity_service.domain
+
+[importlinter:contract:identity-core-framework-free]
+name = identity domain and application never import frameworks or drivers
+type = forbidden
+source_modules =
+    identity_service.domain
+    identity_service.application
+    identity_service.ports
+forbidden_modules =
+    fastapi
+    sqlalchemy
+    httpx
+    aio_pika
+    argon2
+    pyotp
+    cryptography
+    jwt
+
+[importlinter:contract:gateway-layers]
+name = api-gateway hexagonal layers
+type = layers
+layers =
+    api_gateway.main
+    api_gateway.bootstrap
+    api_gateway.adapters
+    api_gateway.application
+    api_gateway.ports
+
+[importlinter:contract:settings-layers]
+name = settings-service hexagonal layers
+type = layers
+layers =
+    settings_service.main
+    settings_service.bootstrap
+    settings_service.adapters
+    settings_service.application
+    settings_service.ports
+    settings_service.domain
+
+[importlinter:contract:settings-core-framework-free]
+name = settings domain and application never import frameworks or drivers
+type = forbidden
+source_modules =
+    settings_service.domain
+    settings_service.application
+    settings_service.ports
+forbidden_modules =
+    fastapi
+    sqlalchemy
+    httpx
+    aio_pika
+    cryptography
+    imaplib
+    smtplib
+
+[importlinter:contract:mail-layers]
+name = mail-service hexagonal layers
+type = layers
+layers =
+    mail_service.main
+    mail_service.bootstrap
+    mail_service.adapters
+    mail_service.application
+    mail_service.ports
+    mail_service.domain
+
+[importlinter:contract:mail-core-framework-free]
+name = mail domain and application never import frameworks, drivers or mail libraries
+type = forbidden
+source_modules =
+    mail_service.domain
+    mail_service.application
+    mail_service.ports
+forbidden_modules =
+    fastapi
+    sqlalchemy
+    httpx
+    aio_pika
+    imaplib
+    smtplib
+    email
+    opspilot_common.resilience
+
+[importlinter:contract:privacy-layers]
+name = privacy-service hexagonal layers
+type = layers
+layers =
+    privacy_service.main
+    privacy_service.bootstrap
+    privacy_service.adapters
+    privacy_service.application
+    privacy_service.ports
+    privacy_service.domain
+
+[importlinter:contract:privacy-core-framework-free]
+name = privacy domain and application never import frameworks, drivers, crypto or NLP
+type = forbidden
+source_modules =
+    privacy_service.domain
+    privacy_service.application
+    privacy_service.ports
+forbidden_modules =
+    fastapi
+    sqlalchemy
+    httpx
+    aio_pika
+    cryptography
+    presidio_analyzer
+    spacy
+    opspilot_common.resilience
+
+[importlinter:contract:audit-layers]
+name = audit-service hexagonal layers
+type = layers
+layers =
+    audit_service.main
+    audit_service.bootstrap
+    audit_service.adapters
+    audit_service.application
+    audit_service.ports
+    audit_service.domain
+
+[importlinter:contract:audit-core-framework-free]
+name = audit domain and application never import frameworks or drivers
+type = forbidden
+source_modules =
+    audit_service.domain
+    audit_service.application
+    audit_service.ports
+forbidden_modules =
+    fastapi
+    sqlalchemy
+    httpx
+    aio_pika
+    opspilot_common.resilience
+
+[importlinter:contract:approval_service-layers]
+name = approval-service hexagonal layers
+type = layers
+layers =
+    approval_service.main
+    approval_service.bootstrap
+    approval_service.adapters
+    approval_service.application
+    approval_service.ports
+    approval_service.domain
+
+[importlinter:contract:approval_service-core-framework-free]
+name = approval-service domain and application never import frameworks or drivers
+type = forbidden
+source_modules =
+    approval_service.domain
+    approval_service.application
+    approval_service.ports
+forbidden_modules =
+    fastapi
+    sqlalchemy
+    httpx
+    aio_pika
+    opspilot_common.resilience
+
+[importlinter:contract:jira_connector-layers]
+name = jira-connector hexagonal layers
+type = layers
+layers =
+    jira_connector.main
+    jira_connector.bootstrap
+    jira_connector.adapters
+    jira_connector.application
+    jira_connector.ports
+    jira_connector.domain
+
+[importlinter:contract:jira_connector-core-framework-free]
+name = jira-connector domain and application never import frameworks or drivers
+type = forbidden
+source_modules =
+    jira_connector.domain
+    jira_connector.application
+    jira_connector.ports
+forbidden_modules =
+    fastapi
+    sqlalchemy
+    httpx
+    aio_pika
+    opspilot_common.resilience
+
+[importlinter:contract:agent_orchestrator-layers]
+name = agent-orchestrator hexagonal layers
+type = layers
+layers =
+    agent_orchestrator.main
+    agent_orchestrator.bootstrap
+    agent_orchestrator.adapters
+    agent_orchestrator.application
+    agent_orchestrator.ports
+    agent_orchestrator.domain
+
+[importlinter:contract:agent_orchestrator-core-framework-free]
+name = agent-orchestrator domain and application never import frameworks or drivers
+type = forbidden
+source_modules =
+    agent_orchestrator.domain
+    agent_orchestrator.application
+    agent_orchestrator.ports
+forbidden_modules =
+    fastapi
+    sqlalchemy
+    httpx
+    aio_pika
+    opspilot_common.resilience
+    langchain_ollama
+    ollama
+    psycopg
+
+[importlinter:contract:reporting_service-layers]
+name = reporting-service hexagonal layers
+type = layers
+layers =
+    reporting_service.main
+    reporting_service.bootstrap
+    reporting_service.adapters
+    reporting_service.application
+    reporting_service.ports
+    reporting_service.domain
+
+[importlinter:contract:reporting_service-core-framework-free]
+name = reporting-service domain and application never import frameworks or drivers
+type = forbidden
+source_modules =
+    reporting_service.domain
+    reporting_service.application
+    reporting_service.ports
+forbidden_modules =
+    fastapi
+    sqlalchemy
+    httpx
+    aio_pika
+    opspilot_common.resilience
+
+[importlinter:contract:services-independent]
+name = Services never import each other
+type = independence
+modules =
+    identity_service
+    api_gateway
+    settings_service
+    mail_service
+    privacy_service
+    audit_service
+    approval_service
+    jira_connector
+    agent_orchestrator
+    reporting_service

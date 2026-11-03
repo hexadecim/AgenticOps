@@ -1,0 +1,72 @@
+# Circuit breaker / retry / timeout / bulkhead per outbound dependency.
+# Loaded by opspilot_common.resilience.ResilienceSettings.from_yaml; blocks override `defaults` partially.
+# Fallback behaviour for each dependency is documented in docs/adr/0002-circuit-breaker.md.
+defaults:
+  timeout: 10
+  bulkhead: 20
+  bulkhead_wait: 0.5
+  breaker: { fail_max: 5, reset_timeout: 30, half_open_max_calls: 1 }
+  retry: { attempts: 3, base_delay: 0.2, max_delay: 2.0 }
+
+dependencies:
+  ollama:            # deepseek-r1:8b reasoning is slow on a PC; long timeout, little concurrency
+    timeout: 180
+    bulkhead: 2
+    bulkhead_wait: 600
+    breaker: { fail_max: 3, reset_timeout: 60 }
+    retry: { attempts: 2, base_delay: 2.0, max_delay: 10.0 }
+  ollama-embed:
+    timeout: 30
+    bulkhead: 4
+  jira:
+    timeout: 15
+    breaker: { fail_max: 5, reset_timeout: 60 }
+  mail-provider:     # IMAP / Gmail / Graph, whichever is configured
+    timeout: 30
+    bulkhead: 2
+    breaker: { fail_max: 3, reset_timeout: 120 }
+  rabbitmq:
+    timeout: 5
+    breaker: { fail_max: 3, reset_timeout: 10 }
+  privacy-service:   # fail closed: callers never fall back to raw text
+    timeout: 20
+  ops-service:
+    timeout: 15
+  jira-connector:
+    timeout: 20
+  mail-service:
+    timeout: 10
+  approval-service:
+    timeout: 5
+  agent-orchestrator:
+    timeout: 5
+  identity-service:
+    timeout: 5
+  settings-service:
+    timeout: 5
+  audit-service:
+    timeout: 10
+  reporting-service:
+    timeout: 10
+  redis:
+    timeout: 2
+    breaker: { fail_max: 3, reset_timeout: 15 }
+  # Admin "Test connection" probes: separate circuits so experiments never trip production ones.
+  probe-mail:
+    timeout: 15
+    retry: { attempts: 1 }
+    breaker: { fail_max: 5, reset_timeout: 20 }
+  probe-jira:
+    timeout: 15
+    retry: { attempts: 1 }
+    breaker: { fail_max: 5, reset_timeout: 20 }
+  probe-google:
+    timeout: 15
+    retry: { attempts: 1 }
+  probe-microsoft:
+    timeout: 15
+    retry: { attempts: 1 }
+  probe-ollama:
+    timeout: 10
+    retry: { attempts: 1 }
+    breaker: { fail_max: 5, reset_timeout: 20 }

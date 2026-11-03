@@ -1,0 +1,35 @@
+.login { min-height: 100%; display: flex; background: var(--bg); }
+.login-aside {
+  width: 560px; flex-shrink: 0; background: var(--chrome); color: var(--chrome-ink); display: flex;
+  flex-direction: column; justify-content: space-between; padding: 56px; gap: 40px;
+}
+.login-aside h1 { margin: 0; font-size: 36px; line-height: 1.2; font-weight: 600; letter-spacing: -.015em; }
+.login-aside ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 18px; font-size: 15px; line-height: 1.5; color: var(--chrome-ink-2); }
+.login-aside li { display: flex; gap: 12px; }
+.login-aside li svg { color: var(--chrome-accent); margin-top: 1px; }
+.login-main { flex-grow: 1; position: relative; display: flex; flex-direction: column; min-width: 0; }
+.login-bar { display: flex; justify-content: flex-end; align-items: center; gap: 16px; padding: 20px 32px; flex-wrap: wrap; }
+.login-bar label { font-size: 13px; color: var(--muted); }
+.login-bar select { min-height: 36px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font: inherit; font-size: 14px; }
+.login-center { flex-grow: 1; display: flex; align-items: center; justify-content: center; padding: 24px 16px 120px; }
+.login-form { width: min(420px, 100%); display: flex; flex-direction: column; gap: 24px; }
+.login-form h2 { margin: 0; font-size: 28px; font-weight: 600; letter-spacing: -.01em; }
+.login-form p.lead { margin: 0; font-size: 15px; color: var(--muted); }
+.divider { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--muted); }
+.divider span { flex-grow: 1; height: 1px; background: var(--line); }
+.enrol { display: grid; grid-template-columns: 148px 1fr; gap: 16px; align-items: center; padding: 16px; }
+.enrol img { width: 148px; height: 148px; border-radius: 8px; background: #fff; padding: 6px; }
+.enrol ol { margin: 0; padding-left: 18px; font-size: 14px; color: var(--ink-2); display: flex; flex-direction: column; gap: 6px; }
+.secret { font-family: "IBM Plex Mono", monospace; font-size: 13px; word-break: break-all; color: var(--ink); }
+.login-footer { display: flex; justify-content: center; gap: 20px; padding: 16px 32px 20px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
+.cookie {
+  position: absolute; left: 32px; right: 32px; bottom: 64px; display: flex; gap: 16px; align-items: center;
+  padding: 16px 20px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line);
+  box-shadow: 0 12px 32px rgba(14,22,33,.12);
+}
+.cookie p { margin: 0; flex-grow: 1; font-size: 14px; line-height: 1.5; color: var(--ink-2); }
+@media (max-width: 1000px) { .login-aside { display: none; } }
+@media (max-width: 560px) {
+  .enrol { grid-template-columns: 1fr; justify-items: center; }
+  .cookie { left: 16px; right: 16px; bottom: 16px; flex-direction: column; align-items: stretch; }
+}
