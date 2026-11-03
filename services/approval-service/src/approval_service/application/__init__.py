@@ -17,6 +17,7 @@ from opspilot_common.events.catalogue import (
     JiraIssueCreated,
     JiraIssueFailed,
     JiraIssueLinked,
+    RunStatusChanged,
 )
 
 from ..domain.approval import VIEWERS, Approval, Status
@@ -180,6 +181,26 @@ class RecordFixOutcome:
             approval.fix_executed(p.ok, p.detail)
             await uow.approvals.save(approval)
             await uow.commit()
+
+
+_VERDICTS = {"resolved": True, "fix_failed": False}  # run status after an approved fix → health passed?
+
+
+class RecordFixHealth:
+    """`run.status_changed` resolved / fix_failed after an approved fix: what the health re-check said, so
+    the fix screen stops promising a check that already happened."""
+
+    def __init__(self, uow: UowFactory) -> None:
+        self._uow = uow
+
+    async def __call__(self, p: RunStatusChanged) -> None:
+        if p.status not in _VERDICTS:
+            return
+        async with self._uow() as uow:
+            approval = await uow.approvals.latest_for_run(p.run_id, Gate.FIX)
+            if approval and approval.health_checked(_VERDICTS[p.status], p.detail):
+                await uow.approvals.save(approval)
+                await uow.commit()
 
 
 class SendReminders:

@@ -1,6 +1,7 @@
 /* Dashboard; layout follows the wireframe (Dashboard.dc.html). */
 .dash-section { display: flex; flex-direction: column; gap: 12px; }
 .dash-section h2, .dash-card h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.dash-sub { margin: 8px 0 0; font-size: 14px; font-weight: 600; color: var(--ink-2); }
 .health-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; }
 .health { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; }
 .health.down { border-color: var(--crit-line); }

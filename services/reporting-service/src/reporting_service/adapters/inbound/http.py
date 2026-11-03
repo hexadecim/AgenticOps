@@ -35,6 +35,17 @@ def build_router(container: Any) -> APIRouter:
                 }
                 for x in d.dependencies
             ],
+            "probes": [
+                {
+                    "name": p.name,
+                    "region": p.region or None,
+                    "health": p.health.value,
+                    "detail": p.detail,
+                    "latency_ms": p.latency_ms,
+                    "since": _iso(p.since),
+                }
+                for p in d.probes
+            ],
             "stages": [
                 {"id": s.stage.value, "label": s.label, "count": s.count, "note": s.note} for s in d.stages
             ],

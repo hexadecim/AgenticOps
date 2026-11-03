@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { reportingApi, type DependencyHealth } from "../../api/reporting";
+import { reportingApi, type DependencyHealth, type ProbeHealth } from "../../api/reporting";
 import { SEVERITY_BADGE, type Severity } from "../../api/approvals";
 import { Icon } from "../../components/Icon";
 import { useLiveEvents } from "../../hooks/useLiveEvents";
@@ -27,6 +27,20 @@ function Health({ d }: { d: DependencyHealth }) {
         <span className={`badge ${h.badge}`}><Icon name={h.icon} size={14} />{h.text}</span>
       </div>
       <span className="health-detail">{detail}</span>
+    </div>
+  );
+}
+
+function ProbeTile({ p }: { p: ProbeHealth }) {
+  const h = HEALTH[p.health];
+  const since = p.since ? `${p.health === "up" ? "ok" : "failing"} since ${time.format(new Date(p.since))}` : "";
+  return (
+    <div className={`health ${p.health === "down" ? "down" : ""}`} title={since || undefined}>
+      <div className="health-head">
+        <span className="health-name">{p.name}</span>
+        <span className={`badge ${h.badge}`}><Icon name={h.icon} size={14} />{p.health === "up" ? "Pass" : "Fail"}</span>
+      </div>
+      <span className="health-detail">{p.region ? `${p.region} · ` : ""}{p.detail}</span>
     </div>
   );
 }
@@ -60,10 +74,19 @@ export function DashboardPage() {
         <>
           <section aria-labelledby="deps-h" className="dash-section op-enter op-d1">
             <h2 id="deps-h">Platform health</h2>
+            {d.probes.length > 0 ? (
+              <div className="health-grid">
+                {d.probes.map((p) => <ProbeTile key={`${p.name}/${p.region ?? ""}`} p={p} />)}
+              </div>
+            ) : (
+              <div className="muted" style={{ fontSize: 13 }}>No probe results yet: ops-service probes your systems every minute.</div>
+            )}
+            <span className="muted" style={{ fontSize: 12 }}>Health probes of the supported systems (ops-service), changes shown live.</span>
+            <h3 className="dash-sub">OpsPilot dependencies</h3>
             <div className="health-grid">
               {d.dependencies.map((x) => <Health key={x.name} d={x} />)}
             </div>
-            <span className="muted" style={{ fontSize: 12 }}>From circuit-breaker events of every service. Health probes of your own systems follow in milestone 6.</span>
+            <span className="muted" style={{ fontSize: 12 }}>From circuit-breaker events of every service.</span>
           </section>
 
           <section aria-labelledby="stages-h" className="dash-section op-enter op-d2">

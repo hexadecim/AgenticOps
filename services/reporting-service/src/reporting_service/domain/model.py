@@ -225,6 +225,29 @@ class Dependency:
         return Health.UP
 
 
+@dataclass(slots=True)
+class Probe:
+    """Latest state of one health probe of the supported systems (from ops-service's `probe.status`)."""
+
+    name: str
+    region: str  # "" when the probe is not tied to a region
+    ok: bool
+    detail: str = ""
+    latency_ms: int | None = None
+    since: datetime | None = None  # when it last changed state
+
+    def record(self, ok: bool, detail: str, latency_ms: int | None, at: datetime) -> bool:
+        """Apply a change unless it is older than what we already know (events arrive in any order)."""
+        if self.since is not None and at < self.since:
+            return False
+        self.ok, self.detail, self.latency_ms, self.since = ok, detail, latency_ms, at
+        return True
+
+    @property
+    def health(self) -> Health:
+        return Health.UP if self.ok else Health.DOWN
+
+
 # Shown even before anything failed, so the panel is never empty.
 KEY_DEPENDENCIES = {
     "ollama": "Local AI model",

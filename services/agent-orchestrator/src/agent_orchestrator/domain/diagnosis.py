@@ -82,6 +82,18 @@ def render_evidence(intake: Intake, jira_key: str | None, d: dict[str, Any]) -> 
     return "\n".join(lines)
 
 
+def ended(text: str, limit: int) -> str:
+    """Text the schema's `max_length` may have cut mid-word (the grammar just stops the model): at the limit,
+    keep the last full sentence if it is most of the text, else cut at a word and mark it with an ellipsis."""
+    text = " ".join(text.split())
+    if len(text) < limit - 1:
+        return text
+    sentence = max(text.rfind(". "), text.rfind("! "), text.rfind("? "))
+    if sentence >= limit * 0.6:
+        return text[: sentence + 1]
+    return text[: limit - 1].rsplit(" ", 1)[0].rstrip(" ,.;:'\"(") + "…"
+
+
 def candidate_for(choice: FixChoice, candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
     if choice.choice == NONE or not choice.choice.isdigit():
         return None
@@ -112,9 +124,9 @@ def build_fix_proposal(
         },
         "runbook": candidate["runbook"],
         "diagnosis": {
-            "likely_cause": shorten(choice.likely_cause, CAUSE_MAX),
+            "likely_cause": ended(choice.likely_cause, CAUSE_MAX),
             "confidence": choice.confidence,
-            "explanation": shorten(choice.explanation, WHY_MAX),
+            "explanation": ended(choice.explanation, WHY_MAX),
         },
         "after": AFTER,
         "evidence": {

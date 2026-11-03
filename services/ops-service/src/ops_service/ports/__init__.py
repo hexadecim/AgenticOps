@@ -34,7 +34,8 @@ class ProbeRunner(Protocol):
 
 class LogSource(Protocol):
     async def search(self, folder: str, services: list[str], *, limit: int = 3) -> list[LogFinding]:
-        """Most recent ERROR/WARN lines per service, already masked."""
+        """Most recent ERROR/WARN lines per service, already masked. Raise LogsUnavailableError when the
+        folder cannot be read at all (as opposed to: readable, and no problems logged)."""
         ...
 
 

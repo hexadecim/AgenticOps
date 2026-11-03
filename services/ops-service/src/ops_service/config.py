@@ -18,3 +18,5 @@ class Settings(BaseSettings):
     mock_environment: str = "/etc/opspilot/ops/environment.yaml"
     log_json: bool = True
     worker_enabled: bool = True
+    # Health probes run on this interval for the dashboard (0 = only during diagnostics and health checks).
+    probe_interval_seconds: float = 60.0

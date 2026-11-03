@@ -123,7 +123,7 @@ def build_container(
         store_proposal=StoreFixProposal(uow),
         queue_fix=QueueFix(uow, active, world, clock),
         run_fixes=run_fixes,
-        worker=OpsWorker(run_fixes, library, active),
+        worker=OpsWorker(run_fixes, library, active, health, probe_every=settings.probe_interval_seconds),
         require_service=service_dependency(ServiceTokenVerifier(settings.jwt_secret), "agent-orchestrator"),
         current_user=principal_dependency(TokenVerifier(settings.jwt_secret)),
         closers=closers,

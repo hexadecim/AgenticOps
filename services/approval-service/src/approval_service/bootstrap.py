@@ -17,6 +17,7 @@ from .application import (
     Decide,
     GetApproval,
     ListApprovals,
+    RecordFixHealth,
     RecordFixOutcome,
     RecordRequest,
     RecordTicketOutcome,
@@ -43,6 +44,7 @@ class Container:
     record_request: RecordRequest
     record_outcome: RecordTicketOutcome
     record_fix: RecordFixOutcome
+    record_health: RecordFixHealth
     send_reminders: SendReminders
     decide: Decide
     list_approvals: ListApprovals
@@ -77,6 +79,7 @@ def build_container(
         record_request=RecordRequest(uow, clock),
         record_outcome=RecordTicketOutcome(uow),
         record_fix=RecordFixOutcome(uow),
+        record_health=RecordFixHealth(uow),
         send_reminders=SendReminders(uow, clock),
         decide=Decide(uow, clock),
         list_approvals=ListApprovals(uow, clock),

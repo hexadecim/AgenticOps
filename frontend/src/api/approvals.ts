@@ -21,6 +21,9 @@ export interface ApprovalSummary {
   reason: string | null;
   outcome: "ticket_pending" | "ticket_created" | "linked" | "ticket_failed" | "fix_pending" | "fix_done" | "fix_failed" | null;
   outcome_detail: string | null;
+  /** T2 only: the health re-check after the fix ran. */
+  health?: "resolved" | "fix_failed" | null;
+  health_detail?: string | null;
   jira_key: string | null;
   reminders: number;
   next_reminder_at: string | null;
@@ -135,6 +138,7 @@ export interface Evidence {
   region: string | null;
   probes: Probe[];
   logs: LogFinding[];
+  notes?: string[];
   executor: string;
   enabled: boolean;
   job: { status: "pending" | "done" | "failed"; ok: boolean | null; detail: string | null; attempts: number } | null;

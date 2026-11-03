@@ -66,7 +66,10 @@ async def api() -> AsyncIterator[tuple[httpx.AsyncClient, Container, object]]:
     async with engine.begin() as conn:
         await conn.run_sync(container.tables.metadata.create_all)
     handler = Inbox(container.tables.inbox, "approval-service.events").guard(
-        container.sessions, on_event(container.record_request, container.record_outcome, container.record_fix)
+        container.sessions,
+        on_event(
+            container.record_request, container.record_outcome, container.record_fix, container.record_health
+        ),
     )
     app = create_app(container, with_events=False, with_reminders=False)
     async with httpx.AsyncClient(
@@ -150,7 +153,7 @@ async def test_queue_is_for_case_roles(api) -> None:  # type: ignore[no-untyped-
 
 
 async def test_fix_gate_reminder_and_outcome(api) -> None:  # type: ignore[no-untyped-def]
-    from opspilot_common.events.catalogue import ActionExecuted
+    from opspilot_common.events.catalogue import ActionExecuted, RunStatusChanged
 
     client, container, handler = api
     env = requested(7, Gate.FIX, minutes_ago=16)
@@ -185,3 +188,14 @@ async def test_fix_gate_reminder_and_outcome(api) -> None:  # type: ignore[no-un
     )  # fmt: skip
     item = (await client.get("/v1/approvals/a-7", headers=user(Role.SUPPORT_AGENT))).json()
     assert item["outcome"] == "fix_done" and item["outcome_detail"] == "Mock executor restarted upload-worker"
+    assert item["health"] is None  # the health re-check has not reported yet
+
+    def run_status(status: str, run_id: str = "r-7") -> EventEnvelope:
+        payload = RunStatusChanged(run_id=run_id, thread_id="t-7", status=status, detail="All 5 probes pass")
+        return EventEnvelope.wrap(payload, source="agent-orchestrator")
+
+    await handler(run_status("waiting_ops"))  # not a verdict: ignored
+    await handler(run_status("resolved", run_id="r-unknown"))  # no fix approval for that run: ignored
+    await handler(run_status("resolved"))
+    item = (await client.get("/v1/approvals/a-7", headers=user(Role.SUPPORT_AGENT))).json()
+    assert item["health"] == "resolved" and item["health_detail"] == "All 5 probes pass"

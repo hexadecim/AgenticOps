@@ -8,6 +8,16 @@ export interface DependencyHealth {
   callers: Record<string, string>;
 }
 
+/** A health probe of the supported systems (ops-service), latest state. */
+export interface ProbeHealth {
+  name: string;
+  region: string | null;
+  health: "up" | "down";
+  detail: string;
+  latency_ms: number | null;
+  since: string | null;
+}
+
 export interface TimelineEntry { at: string; actor: string; text: string; system: boolean }
 
 export interface Incident {
@@ -24,6 +34,7 @@ export interface DashboardData {
   generated_at: string;
   window_hours: number;
   dependencies: DependencyHealth[];
+  probes: ProbeHealth[];
   stages: { id: string; label: string; count: number | null; note: string }[];
   service_levels: { id: string; label: string; value: string; detail: string; breached: boolean }[];
   incidents: Incident[];

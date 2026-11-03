@@ -313,3 +313,19 @@ def test_rendered_evidence_numbers_the_candidates() -> None:
     text = render_evidence(SUPPORT, "KAN-12", {"probes": [FAILING], "candidates": [CANDIDATE], "logs": []})
     assert "Ticket KAN-12: Upload stuck at 0%" in text and "- Upload: FAIL, timeout" in text
     assert '1. restart_service(service="upload-worker", region="eu-west-1"): runbook RB-07 step 3' in text
+
+
+def test_text_cut_by_the_schema_limit_ends_cleanly() -> None:
+    from agent_orchestrator.domain.diagnosis import WHY_MAX, ended
+
+    seen_live = (
+        "The Upload probe is failing with a timeout and 0 bytes stored, and the upload-worker logs "
+        "indicate a storage write failure (EIO on /vol/uploads). This matches the condition for "
+        "RB-07 step 3, which addresses a storage issue related to the 'E"
+    )
+    assert len(seen_live) == WHY_MAX  # the grammar stopped the model exactly at max_length
+    assert ended(seen_live, WHY_MAX).endswith("(EIO on /vol/uploads).")  # last full sentence kept
+    long_sentence = "word " * 60
+    cut = ended(long_sentence, WHY_MAX)
+    assert cut.endswith("word…") and len(cut) <= WHY_MAX
+    assert ended("Short and complete.", WHY_MAX) == "Short and complete."

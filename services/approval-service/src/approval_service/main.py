@@ -32,7 +32,12 @@ def create_app(
             runtime = EventRuntime(SERVICE, container.settings.rabbitmq_url, container.registry)
             runtime.add_outbox(container.sessions, container.tables.outbox)
             inbox = Inbox(container.tables.inbox, f"{SERVICE}.events")
-            handler = on_event(container.record_request, container.record_outcome, container.record_fix)
+            handler = on_event(
+                container.record_request,
+                container.record_outcome,
+                container.record_fix,
+                container.record_health,
+            )
             runtime.add_consumer("events", BINDINGS, inbox.guard(container.sessions, handler))
             await runtime.start()
         reminders = ReminderLoop(container.send_reminders) if with_reminders else None

@@ -40,6 +40,7 @@ from ..domain.errors import (
     EmbeddingUnavailableError,
     EvidenceUnavailableError,
     ExecutorUnavailableError,
+    LogsUnavailableError,
     NotAllowedError,
     NotFoundError,
     SettingsUnavailableError,
@@ -161,20 +162,29 @@ class RunbookLibrary:
 
 
 class CheckHealth:
-    """Runs the probes for a region and publishes `probe.status` only when a probe changes state."""
+    """Runs the probes for a region and publishes `probe.status` only when a probe changes state, or for every
+    probe when `announce` is set (the first sweep after start-up: read models that missed history, or were
+    added later, learn the current state without a replay)."""
 
     def __init__(self, uow: UowFactory, probes: ProbeRunner, clock: Clock) -> None:
         self._uow, self._probes, self._clock = uow, probes, clock
 
     async def __call__(
-        self, region: str | None, *, run_id: str | None = None, thread_id: str | None = None
+        self,
+        region: str | None,
+        *,
+        run_id: str | None = None,
+        thread_id: str | None = None,
+        announce: bool = False,
     ) -> list[ProbeResult]:
         results = await self._probes.run(region)
         now = self._clock.now()
         async with self._uow() as uow:
             for p in results:
-                if await uow.probe_states.last(p.name, p.region) is not p.ok:
+                changed = await uow.probe_states.last(p.name, p.region) is not p.ok
+                if changed:
                     await uow.probe_states.set(p.name, p.region, p.ok, now)
+                if changed or announce:
                     uow.events.record(
                         ProbeStatus(
                             probe=p.name,
@@ -222,16 +232,24 @@ class Diagnose:
         probes = await self._health(region, run_id=q.run_id, thread_id=q.thread_id)
         failing = failing_services(probes)
         services = failing or mentioned_services(f"{q.text} {q.asset or ''}", env.services)
-        logs: list[LogFinding] = await self._logs.search(cfg.log_folder, services) if services else []
+        notes: list[str] = []
+        logs: list[LogFinding] = []
+        if services:
+            try:
+                logs = await self._logs.search(cfg.log_folder, services)
+            except LogsUnavailableError as exc:
+                notes.append(f"Logs unavailable ({exc.message}); judged on probes and runbooks only.")
         # A probe exercises several services; the one whose logs show the most problems is the suspect.
         noise = {f.service: len(f.lines) + f.similar for f in logs}
         logs.sort(key=lambda f: noise[f.service], reverse=True)
         failing.sort(key=lambda s: noise.get(s, 0), reverse=True)
         matches, note = await self._library.search(cfg, search_text(q.text, probes, logs))
         found = candidates(
-            matches, env=env, enabled=cfg.enabled_actions, region=region, site=q.site, failing=failing
-        )
-        notes = [note] if note else []
+            matches, env=env, enabled=cfg.enabled_actions, region=region, site=q.site, failing=failing,
+            ranked_by_logs=any(noise.get(s, 0) for s in failing),
+        )  # fmt: skip
+        if note:
+            notes.insert(0, note)
         if not failing:
             notes.append("All probes pass right now.")
         return Diagnostics(
@@ -257,12 +275,17 @@ class GetEvidence:
         cfg = await self._settings.get()
         probes = await self._health(proposal.region, run_id=proposal.run_id, thread_id=proposal.thread_id)
         services = proposal.services or [proposal.params.get("service", "")]
-        logs = await self._logs.search(cfg.log_folder, [s for s in services if s])
+        notes: list[str] = []
+        try:
+            logs = await self._logs.search(cfg.log_folder, [s for s in services if s])
+        except LogsUnavailableError as exc:
+            logs, notes = [], [f"Logs unavailable ({exc.message})."]
         return {
             "checked_at": self._clock.now().isoformat(),
             "region": proposal.region,
             "probes": [p.json() for p in probes],
             "logs": [f.json() for f in logs],
+            "notes": notes,
             "executor": cfg.executor,
             "enabled": proposal.action in cfg.enabled_actions,
             "job": None

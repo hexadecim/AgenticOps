@@ -122,3 +122,18 @@ def test_fix_gate_reminds_every_15_minutes_while_it_waits() -> None:
     assert approval().next_reminder_at is None  # ticket gate: no reminders
     a.fix_executed(False, "Refused before running")
     assert a.outcome is Outcome.FIX_FAILED and a.outcome_detail == "Refused before running"
+
+
+def test_only_an_approved_fix_takes_a_health_verdict() -> None:
+    from datetime import UTC, datetime
+
+    from approval_service.domain.approval import Approval, Status
+    from opspilot_common.events.catalogue import Gate
+
+    def approval(gate: Gate, status: Status) -> Approval:
+        return Approval("a", "r", "t", gate, "x", "y", datetime(2026, 11, 3, tzinfo=UTC), status=status)
+
+    assert approval(Gate.FIX, Status.APPROVED).health_checked(True, "All 5 probes pass")
+    assert not approval(Gate.FIX, Status.PENDING).health_checked(True, None)
+    assert not approval(Gate.FIX, Status.REJECTED).health_checked(False, None)
+    assert not approval(Gate.TICKET, Status.APPROVED).health_checked(True, None)
