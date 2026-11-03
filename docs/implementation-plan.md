@@ -24,7 +24,7 @@ _Last updated: 2026-11-03_
 | 8 | Privacy / GDPR screens and retention jobs | ⬜ | – |
 | 9 | Hardening: chaos tests, tracing, load, production config | ⬜ | – |
 
-Progress: **7 of 11** milestones done (0–5; 4 = **MVP**), milestone 6 built. 248 automated tests.
+Progress: **8 of 11** milestones done (0–6; 4 = **MVP**). 248 automated tests.
 
 ## Dev environment (current state)
 
@@ -35,9 +35,9 @@ Progress: **7 of 11** milestones done (0–5; 4 = **MVP**), milestone 6 built. 2
 | RabbitMQ / Jaeger | http://localhost:15672 (opspilot / opspilot) · http://localhost:16686 |
 | Admin sign-in | `admin@opspilot.local`; password reset on 2026-10-08 to the one you chose (not stored in the repo; `.env`'s `BOOTSTRAP_ADMIN_PASSWORD` no longer matches). Authenticator reset: first sign-in shows the QR code |
 | Demo users | analyst@, agent@, manager@, compliance@opspilot.local — set a temporary password via Users and roles › Manage › Reset password |
-| Deactivated helper users | walkthrough@, check-1b@ and check-m3-…@opspilot.local (used for automated checks; leave deactivated) |
+| Deactivated helper users | walkthrough@, check-1b@, check-m3-…@ and m6-walk@opspilot.local (used for automated checks; leave deactivated) |
 | Approver for tests | `analyst@opspilot.local` (L1 Analyst), password and authenticator set by you on 2026-10-08 |
-| Jira | `supportautomation.atlassian.net`, project KAN, type Incident. OpsPilot created KAN-18 (you deleted it) and KAN-19 |
+| Jira | `supportautomation.atlassian.net`, project KAN, type Incident. OpsPilot created KAN-18 (you deleted it), KAN-19, KAN-28 and KAN-29 (M6 walk-through) |
 | Agent services | approval-service :8006, jira-connector :8007, agent-orchestrator :8008, reporting-service :8009 (compose-internal) |
 | Screens | Approvals http://localhost:8080/approvals · Dashboard /dashboard · Audit log /audit (compliance lead, support manager, admin) |
 | Dev mailbox | GreenMail `devmail`: IMAP localhost:3143, SMTP localhost:3025, `support@opspilot.local` / `support-dev-pass` |
@@ -45,7 +45,7 @@ Progress: **7 of 11** milestones done (0–5; 4 = **MVP**), milestone 6 built. 2
 | privacy-service / audit-service | Ports 8004 / 8005 inside compose only. Reveal: `POST /api/privacy/reveals`; audit: `GET /api/audit/entries?kind=human\|tool\|privacy&q=&cursor=` (Compliance lead, Support manager, Admin) |
 | mail-service | Port 8003 inside compose only (not published). Polls the dev mailbox every 60 s; status at `/api/mail/status`, Admin "check now" at `POST /api/admin/mail/poll` |
 | Ollama | Host PC, `deepseek-r1:8b` + `nomic-embed-text`; ~70 s per triage call with thinking on |
-| Git | Initialised, everything staged, **nothing committed**, no remote | The MVP checkpoint (email → approval → Jira) is milestone 4.
+| Git | `github.com/hexadecim/AgenticOps`; one feature branch per milestone, squash-merged into `main` by PR | The MVP checkpoint (email → approval → Jira) is milestone 4.
 
 ---
 
@@ -376,7 +376,7 @@ ingestion itself was verified in milestone 2.)
 - [ ] Incident end time (today all system events after the start show on open incidents)
 - [ ] A "rebuild read model" command (the backfill was a manual outbox replay)
 
-## Milestone 6 — ops-service + T2 production fix 🟨
+## Milestone 6 — ops-service + T2 production fix ✅
 
 Design: [ADR-0006](adr/0006-diagnostics-and-fix-gate.md). Mock environment, runbooks, logs: `deploy/ops/`.
 
@@ -390,8 +390,18 @@ Design: [ADR-0006](adr/0006-diagnostics-and-fix-gate.md). Mock environment, runb
 - [x] T2 gate: Support agent only, parameter edits limited to offered choices, reminder every 15 min, "Evidence
       unavailable" + Approve disabled when ops-service is down (gateway 503) — tests
 - [x] Admin › Integrations › Ops section (executor, enabled actions, folders, HTTP probes) + connection test
-- [~] UI: Approve production fix screen — built and type-checked; walk-through in the browser not done yet
-- [ ] Live end-to-end in the UI: T1 approve → Jira → diagnostics → T2 approve as agent → resolved
+- [x] UI: Approve production fix screen — walked through in the browser (2026-11-03): fresh evidence, 15-min reminder
+      notice, Edit parameters (only offered choices; "You changed the AI's proposal" note), outcome footer after deciding
+- [x] Live end-to-end in the UI (2026-11-03, throwaway Support agent `m6-walk@`, since deactivated): synthetic
+      "Telemetry upload stuck" email → T1 approved → **KAN-29** → diagnostics (~2 min) → T2 → service edited from the
+      model's `upload-api` to `upload-worker` → mock executor cleared the fault → health re-check "All 5 probes pass" →
+      run `resolved`; audit chain complete with people shown by role
+
+**Follow-ups found in the walk-through (not blocking)**
+- [ ] deepseek's reasoning named upload-worker but it picked the `restart_service(upload-api)` candidate: when two
+      candidates differ only by a parameter, offer one candidate per action and let the evidence choose the parameter
+- [ ] Reasoning summary on the fix screen is cut mid-sentence and runs into the "deepseek-r1:8b · thinking" label
+- [ ] Outcome footer still says "Health re-checks the probes next" after the run is already resolved
 - Reject at T2 ends the run with the reason; continuing to Comms is milestone 7.
 
 ## Milestone 7 — Comms + T3 customer message ⬜
