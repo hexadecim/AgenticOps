@@ -9,6 +9,7 @@ from typing import Any, Protocol, Self
 
 from opspilot_common.events.envelope import EventPayload
 
+from ..domain.diagnosis import FixChoice
 from ..domain.run import Run, RunStatus
 from ..domain.triage import Intake
 
@@ -53,6 +54,28 @@ class ThreadTickets(Protocol):
         """Jira key of an earlier run on the same mail thread, if it got a ticket."""
         ...
 
+    async def reporters(self, jira_key: str) -> int:
+        """How many runs (reporters) are linked to the ticket."""
+        ...
+
+
+class OpsEvidence(Protocol):
+    async def diagnose(
+        self, *, text: str, site: str | None, asset: str | None, run_id: str, thread_id: str
+    ) -> dict[str, Any]:
+        """Probes, masked logs, runbooks and allow-listed candidates. Raise OpsUnavailableError."""
+        ...
+
+    async def probes(self, region: str | None, *, run_id: str, thread_id: str) -> list[dict[str, Any]]:
+        """Fresh health probes. Raise OpsUnavailableError."""
+        ...
+
+
+class FixAdvisor(Protocol):
+    async def choose(self, evidence: str, candidates: int) -> FixChoice:
+        """Pick one numbered candidate or 'none'. Raise LlmUnavailableError or DiagnosisUnusableError."""
+        ...
+
 
 @dataclass(frozen=True)
 class AgentPorts:
@@ -62,6 +85,8 @@ class AgentPorts:
     issues: IssueContext
     events: EventSink
     threads: ThreadTickets
+    ops: OpsEvidence | None = None  # None: diagnostics is skipped (the run ends at the ticket)
+    advisor: FixAdvisor | None = None
 
 
 class LlmCircuit(Protocol):

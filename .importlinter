@@ -11,6 +11,7 @@ root_packages =
     jira_connector
     agent_orchestrator
     reporting_service
+    ops_service
 include_external_packages = True
 
 # Shared library: resilience and events must not depend on web frameworks.
@@ -291,3 +292,31 @@ modules =
     jira_connector
     agent_orchestrator
     reporting_service
+    ops_service
+
+[importlinter:contract:ops_service-layers]
+name = ops-service hexagonal layers
+type = layers
+layers =
+    ops_service.main
+    ops_service.bootstrap
+    ops_service.adapters
+    ops_service.application
+    ops_service.ports
+    ops_service.domain
+
+[importlinter:contract:ops_service-core-framework-free]
+name = ops-service domain and application never import frameworks or drivers
+type = forbidden
+source_modules =
+    ops_service.domain
+    ops_service.application
+    ops_service.ports
+forbidden_modules =
+    fastapi
+    sqlalchemy
+    httpx
+    aio_pika
+    yaml
+    pgvector
+    opspilot_common.resilience

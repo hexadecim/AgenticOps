@@ -19,7 +19,7 @@ def case(n: int, status: str, **times: object) -> Case:
     return Case(f"r-{n}", f"t-{n}", status, **times)  # type: ignore[arg-type]
 
 
-def test_stages_count_open_work_and_say_what_is_not_tracked_yet() -> None:
+def test_stages_count_open_work_diagnostics_and_resolved_today() -> None:
     cases = [
         case(1, "running"),
         case(2, "waiting_llm"),
@@ -27,11 +27,18 @@ def test_stages_count_open_work_and_say_what_is_not_tracked_yet() -> None:
         case(4, "ticket_created"),
         case(5, "ignored"),
         case(6, "rejected"),
+        case(7, "waiting_ops"),
+        case(8, "fix_approved"),
+        case(9, "fix_failed"),
+        case(10, "resolved", updated_at=T0),
+        case(11, "resolved", updated_at=T0 - timedelta(days=1)),
     ]
-    stages = {s.stage: s for s in stage_counts(cases)}
+    stages = {s.stage: s for s in stage_counts(cases, today=T0.replace(hour=0))}
     assert stages[Stage.INTAKE].count == 2 and stages[Stage.INTAKE].note == "1 paused for the AI"
-    assert stages[Stage.APPROVAL].count == 1 and stages[Stage.ENGINEERING].count == 1
-    assert stages[Stage.DIAGNOSTICS].count is None and "milestone 6" in stages[Stage.DIAGNOSTICS].note
+    assert stages[Stage.APPROVAL].count == 1 and stages[Stage.ENGINEERING].count == 2
+    assert stages[Stage.DIAGNOSTICS].count == 2 and stages[Stage.DIAGNOSTICS].note == "1 waiting for evidence"
+    assert stages[Stage.CLOSED].count == 1  # resolved today only
+    assert stages[Stage.CUSTOMER].count is None and "milestone 7" in stages[Stage.CUSTOMER].note
 
 
 def test_service_levels_from_timings() -> None:

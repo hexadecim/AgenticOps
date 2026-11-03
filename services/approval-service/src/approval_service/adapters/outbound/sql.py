@@ -10,7 +10,7 @@ from opspilot_common.events import EventEnvelope, Outbox, inbox_table, outbox_ta
 from opspilot_common.events.catalogue import Gate
 from opspilot_common.events.envelope import EventPayload
 from opspilot_common.logging import correlation_id
-from sqlalchemy import JSON, Column, DateTime, MetaData, String, Table, Text, insert, select, update
+from sqlalchemy import JSON, Column, DateTime, Integer, MetaData, String, Table, Text, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ...domain.approval import Approval, Outcome, Status
@@ -44,6 +44,8 @@ class ApprovalTables:
             Column("edits", JSON, nullable=False),
             Column("outcome", String(20), nullable=True),
             Column("outcome_detail", Text, nullable=True),
+            Column("reminders", Integer, nullable=False, default=0),
+            Column("reminded_at", DateTime(timezone=True), nullable=True),
         )
         self.outbox = outbox_table(self.metadata)
         self.inbox = inbox_table(self.metadata)
@@ -73,6 +75,8 @@ def _row(a: Approval) -> dict[str, Any]:
         "edits": a.edits,
         "outcome": a.outcome.value if a.outcome else None,
         "outcome_detail": a.outcome_detail,
+        "reminders": a.reminders,
+        "reminded_at": a.reminded_at,
     }
 
 
@@ -97,6 +101,8 @@ def _approval(r: Any) -> Approval:
         edits=dict(r.edits),
         outcome=Outcome(r.outcome) if r.outcome else None,
         outcome_detail=r.outcome_detail,
+        reminders=r.reminders or 0,
+        reminded_at=_aware(r.reminded_at),
     )
 
 

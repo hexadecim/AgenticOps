@@ -37,6 +37,10 @@ _OPEN = (
     "waiting_approval",
     "approved",
     "ticket_created",
+    "waiting_ops",
+    "fix_approved",
+    "fix_rejected",
+    "fix_failed",
 )
 _CASE_TIMES = (
     "received_at",

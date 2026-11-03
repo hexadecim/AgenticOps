@@ -90,6 +90,7 @@ services:
       APPROVAL_URL: http://approval-service:8006
       ORCHESTRATOR_URL: http://agent-orchestrator:8008
       REPORTING_URL: http://reporting-service:8009
+      OPS_URL: http://ops-service:8010
       # nginx overwrites X-Forwarded-For with the real client address; trust it so rate limits are per person.
       FORWARDED_ALLOW_IPS: "*"
     volumes: ["./resilience.yaml:/etc/opspilot/resilience.yaml:ro"]
@@ -105,6 +106,7 @@ services:
       approval-service: { condition: service_healthy }
       agent-orchestrator: { condition: service_healthy }
       reporting-service: { condition: service_healthy }
+      ops-service: { condition: service_healthy }
 
   settings-service:
     build: { context: .., dockerfile: services/settings-service/Dockerfile }
@@ -214,6 +216,7 @@ services:
       SETTINGS_URL: http://settings-service:8002
       PRIVACY_URL: http://privacy-service:8004
       JIRA_CONNECTOR_URL: http://jira-connector:8007
+      OPS_URL: http://ops-service:8010
     volumes: ["./resilience.yaml:/etc/opspilot/resilience.yaml:ro"]
     extra_hosts: ["host.docker.internal:host-gateway"]
     depends_on:
@@ -222,6 +225,28 @@ services:
       settings-service: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8008/health/live')"]
+      interval: 10s
+      retries: 12
+
+  # Probes, masked logs, runbook retrieval (pgvector + nomic-embed-text) and allow-listed actions. The executor
+  # is the mock environment (deploy/ops): approved fixes change only the simulation.
+  ops-service:
+    build: { context: .., dockerfile: services/ops-service/Dockerfile }
+    environment:
+      <<: *service-env
+      DATABASE_URL: postgresql+asyncpg://ops_svc:ops_dev_password@postgres:5432/opspilot
+      SETTINGS_URL: http://settings-service:8002
+      MOCK_ENVIRONMENT: /etc/opspilot/ops/environment.yaml
+    volumes:
+      - "./resilience.yaml:/etc/opspilot/resilience.yaml:ro"
+      - "./ops:/etc/opspilot/ops:ro"   # runbooks, logs and the mock environment; edits apply without a rebuild
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      settings-service: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/health/live')"]
       interval: 10s
       retries: 12
 

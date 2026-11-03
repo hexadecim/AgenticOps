@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     approval_url: str = "http://localhost:8006"
     orchestrator_url: str = "http://localhost:8008"
     reporting_url: str = "http://localhost:8009"
+    ops_url: str = "http://localhost:8010"
     rabbitmq_url: str = "amqp://opspilot:opspilot@localhost:5672/"
     live_events: bool = True  # relay approval/run/jira events to browsers (SSE)
     redis_url: str = "redis://localhost:6379/0"

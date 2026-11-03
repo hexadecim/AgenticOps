@@ -18,7 +18,12 @@ from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
 from .adapters.inbound.live import Broadcaster
-from .adapters.outbound.approvals_http import ApprovalHttpClient, ReportingHttpClient, RunsHttpClient
+from .adapters.outbound.approvals_http import (
+    ApprovalHttpClient,
+    OpsHttpClient,
+    ReportingHttpClient,
+    RunsHttpClient,
+)
 from .adapters.outbound.audit_privacy_http import AuditHttpClient, PrivacyHttpClient
 from .adapters.outbound.breakers import RedisBreakerStateReader
 from .adapters.outbound.identity_http import IdentityHttpClient
@@ -32,6 +37,7 @@ from .ports import (
     AuditPort,
     IdentityPort,
     MailPort,
+    OpsPort,
     PrivacyPort,
     RateLimiter,
     ReportingPort,
@@ -52,6 +58,7 @@ class Container:
     approvals: ApprovalPort
     runs: RunsPort
     reporting: ReportingPort
+    ops: OpsPort
     live: Broadcaster
     verifier: TokenVerifier
     sign_in: SignIn
@@ -75,6 +82,7 @@ def build_container(
     approvals: ApprovalPort | None = None,
     runs: RunsPort | None = None,
     reporting: ReportingPort | None = None,
+    ops: OpsPort | None = None,
     limiter: RateLimiter | None = None,
     redis: Redis | None = None,
 ) -> Container:
@@ -95,6 +103,7 @@ def build_container(
     approvals = approvals or ApprovalHttpClient(service("approval-service", settings.approval_url))
     runs = runs or RunsHttpClient(service("agent-orchestrator", settings.orchestrator_url))
     reporting = reporting or ReportingHttpClient(service("reporting-service", settings.reporting_url))
+    ops = ops or OpsHttpClient(service("ops-service", settings.ops_url))
     limiter = limiter or RedisRateLimiter(redis, registry.get("redis"))
     resilience = (
         ResilienceSettings.from_yaml(settings.resilience_config)
@@ -113,6 +122,7 @@ def build_container(
         approvals=approvals,
         runs=runs,
         reporting=reporting,
+        ops=ops,
         live=Broadcaster(),
         verifier=TokenVerifier(settings.jwt_secret),
         sign_in=SignIn(identity, limiter, settings.sign_in_limit_per_minute),

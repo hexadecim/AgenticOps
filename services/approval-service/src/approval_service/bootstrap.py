@@ -13,7 +13,15 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from .adapters.outbound.sql import ApprovalTables, SqlUnitOfWork
-from .application import Decide, GetApproval, ListApprovals, RecordRequest, RecordTicketOutcome
+from .application import (
+    Decide,
+    GetApproval,
+    ListApprovals,
+    RecordFixOutcome,
+    RecordRequest,
+    RecordTicketOutcome,
+    SendReminders,
+)
 from .config import Settings
 from .ports import Clock, UnitOfWork
 
@@ -34,6 +42,8 @@ class Container:
     registry: ResilienceRegistry
     record_request: RecordRequest
     record_outcome: RecordTicketOutcome
+    record_fix: RecordFixOutcome
+    send_reminders: SendReminders
     decide: Decide
     list_approvals: ListApprovals
     get_approval: GetApproval
@@ -66,6 +76,8 @@ def build_container(
         registry=redis_registry(redis, settings.resilience_config),
         record_request=RecordRequest(uow, clock),
         record_outcome=RecordTicketOutcome(uow),
+        record_fix=RecordFixOutcome(uow),
+        send_reminders=SendReminders(uow, clock),
         decide=Decide(uow, clock),
         list_approvals=ListApprovals(uow, clock),
         get_approval=GetApproval(uow),

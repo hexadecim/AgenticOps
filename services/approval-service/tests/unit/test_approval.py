@@ -71,3 +71,54 @@ def test_edits_are_limited_to_the_gate() -> None:
     for bad in ({"assignee": "me"}, {"severity": "urgent"}, {"summary": "x"}):
         with pytest.raises(InvalidDecisionError):
             approval().decide(person(Role.L1_ANALYST), Decision.APPROVE, reason=None, edits=bad, now=NOW)
+
+
+FIX_PROPOSAL = {
+    "action": {
+        "name": "restart_service",
+        "params": {"service": "upload-worker", "region": "eu-west-1"},
+        "params_spec": [
+            {"name": "service", "label": "Service", "choices": ["upload-worker", "upload-api"]},
+            {"name": "region", "label": "Region", "choices": ["eu-west-1"]},
+        ],
+    }
+}
+
+
+def fix_approval() -> Approval:
+    return Approval(
+        "a-2", "r-1", "t-1", Gate.FIX, "Restart upload-worker on eu-west-1?", "Diagnostics", NOW,
+        proposal=FIX_PROPOSAL,
+    )  # fmt: skip
+
+
+def test_fix_parameters_may_only_change_to_offered_choices() -> None:
+    agent = person(Role.SUPPORT_AGENT)
+    a = fix_approval()
+    a.decide(agent, Decision.APPROVE, reason=None, edits={"params": {"service": "upload-api"}}, now=NOW)
+    assert a.edits == {"params": {"service": "upload-api"}} and a.outcome is Outcome.FIX_PENDING
+    for bad, message in (
+        ({"params": {"service": "postgres"}}, "Service 'postgres' is not one of the allowed values"),
+        ({"params": {"force": "yes"}}, "force is not a parameter of restart_service"),
+        ({"params": "upload-api"}, "name/value pairs"),
+        ({"summary": "x"}, "cannot be changed here"),
+    ):
+        with pytest.raises(InvalidDecisionError, match=message):
+            fix_approval().decide(agent, Decision.APPROVE, reason=None, edits=bad, now=NOW)
+
+
+def test_fix_gate_reminds_every_15_minutes_while_it_waits() -> None:
+    from datetime import timedelta
+
+    a = fix_approval()
+    assert a.next_reminder_at == NOW + timedelta(minutes=15)
+    assert not a.remind(NOW + timedelta(minutes=14, seconds=59))
+    assert a.remind(NOW + timedelta(minutes=15)) and a.reminders == 1
+    assert not a.remind(NOW + timedelta(minutes=20))
+    assert a.remind(NOW + timedelta(minutes=47)) and a.reminders == 3  # after a pause: one, not three
+    assert a.next_reminder_at == NOW + timedelta(minutes=60)
+    a.decide(person(Role.SUPPORT_AGENT), Decision.APPROVE, reason=None, edits={}, now=NOW)
+    assert a.next_reminder_at is None and not a.remind(NOW + timedelta(hours=2))
+    assert approval().next_reminder_at is None  # ticket gate: no reminders
+    a.fix_executed(False, "Refused before running")
+    assert a.outcome is Outcome.FIX_FAILED and a.outcome_detail == "Refused before running"

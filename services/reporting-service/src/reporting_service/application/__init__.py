@@ -33,7 +33,12 @@ _PAUSE_NOTES = {
     "failed": "Run stopped",
     "ignored": "Not a support request; no ticket proposed",
     "rejected": "Ticket request rejected",
+    "waiting_ops": "Paused: ops-service unavailable (no fix without fresh evidence)",
+    "fix_rejected": "Fix rejected",
+    "fix_failed": "Fix did not resolve it; escalate to on-call",
+    "resolved": "Resolved: health probes pass after the fix",
 }
+_WITH_DETAIL = ("failed", "rejected", "fix_rejected", "fix_failed")
 
 
 def _role(value: str) -> str:
@@ -87,7 +92,7 @@ class ProjectEvent:
             case.jira_key = p.jira_key or case.jira_key
             await uow.cases.save(case)
             if p.status in _PAUSE_NOTES:
-                detail = f": {p.detail}" if p.detail and p.status in ("failed", "rejected") else ""
+                detail = f": {p.detail}" if p.detail and p.status in _WITH_DETAIL else ""
                 await self._note(
                     uow,
                     env,
@@ -106,20 +111,22 @@ class ProjectEvent:
             )
         elif isinstance(p, c.ApprovalRequested):
             case = await self._case(uow, p.run_id, p.thread_id)
-            case.requested_at = case.requested_at or at
-            case.title, case.severity, case.site = p.title, p.severity, p.site
+            if p.gate is c.Gate.TICKET or not case.title:  # the case keeps its ticket's title
+                case.requested_at = case.requested_at or at
+                case.title, case.severity, case.site = p.title, p.severity, p.site
             await uow.cases.save(case)
             await self._note(
                 uow,
                 env,
-                "Triage",
+                "Triage" if p.gate is c.Gate.TICKET else "Diagnostics",
                 f"Approval requested ({p.gate.value}): {p.title}",
                 run_id=p.run_id,
                 thread_id=p.thread_id,
             )
         elif isinstance(p, c.ApprovalDecided):
             case = await self._case(uow, p.run_id, p.thread_id)
-            case.decided_at, case.decision = case.decided_at or at, p.decision.value
+            if p.gate is c.Gate.TICKET:  # service levels measure the ticket gate
+                case.decided_at, case.decision = case.decided_at or at, p.decision.value
             await uow.cases.save(case)
             verb = {"approve": "approved", "reject": "rejected", "send_back": "sent back"}[p.decision.value]
             await self._note(
@@ -140,6 +147,18 @@ class ProjectEvent:
             text = {"open": f"{label} failing: calls paused", "half_open": f"{label}: testing recovery",
                     "closed": f"{label} recovered"}.get(p.new, f"{label}: {p.new}")  # fmt: skip
             await self._note(uow, env, LABELS.get(p.service, p.service), text, system=True)
+        elif isinstance(p, c.ActionExecuted) and p.thread_id:
+            outcome = "done" if p.ok else "not run"
+            await self._note(
+                uow, env, "Ops executor", f"{p.action}: {outcome}. {p.detail}", run_id=p.run_id,
+                thread_id=p.thread_id, jira_key=p.jira_key,
+            )  # fmt: skip
+        elif isinstance(p, c.ProbeStatus) and p.thread_id:
+            state = "healthy" if p.ok else "failing"
+            await self._note(
+                uow, env, "Health", f"{p.probe} probe {state}: {p.detail}", run_id=p.run_id,
+                thread_id=p.thread_id,
+            )  # fmt: skip
         elif isinstance(p, c.PrivacyRecorded) and p.action == "pseudonymise" and p.thread_id:
             await self._note(uow, env, "Privacy gate", p.detail, thread_id=p.thread_id)
 
@@ -234,7 +253,7 @@ class GetDashboard:
         return Dashboard(
             generated_at=now,
             dependencies=dependencies,
-            stages=stage_counts(cases),
+            stages=stage_counts(cases, today=now.replace(hour=0, minute=0, second=0, microsecond=0)),
             service_levels=service_levels(cases, since=now - WINDOW),
             incidents=sorted(incidents.values(), key=lambda i: i.first_seen or now, reverse=True)[:10],
         )

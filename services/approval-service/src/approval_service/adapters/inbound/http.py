@@ -48,6 +48,8 @@ def summary_json(a: Approval) -> dict[str, Any]:
         "outcome": a.outcome.value if a.outcome else None,
         "outcome_detail": a.outcome_detail,
         "jira_key": a.jira_key,
+        "reminders": a.reminders,
+        "next_reminder_at": a.next_reminder_at.isoformat() if a.next_reminder_at else None,
     }
 
 

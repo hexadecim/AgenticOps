@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 const TYPES = [
   "approval.requested", "approval.decided", "run.status_changed",
   "jira.issue.created", "jira.issue.linked", "jira.issue.failed", "breaker.state_changed",
+  "action.executed", "approval.reminder",
 ];
 
 /** Live updates: the gateway relays event types and ids only; we refetch what the page shows. */
@@ -18,7 +19,10 @@ export function useLiveEvents(): boolean {
       void qc.invalidateQueries({ queryKey: ["runs-summary"] });
       void qc.invalidateQueries({ queryKey: ["dashboard"] });
       void qc.invalidateQueries({ queryKey: ["timeline"] });
-      if (data.approval_id) void qc.invalidateQueries({ queryKey: ["approval", data.approval_id] });
+      if (data.approval_id) {
+        void qc.invalidateQueries({ queryKey: ["approval", data.approval_id] });
+        void qc.invalidateQueries({ queryKey: ["evidence", data.approval_id] });
+      }
     };
     TYPES.forEach((t) => source.addEventListener(t, refresh as EventListener));
     source.onopen = () => setConnected(true);

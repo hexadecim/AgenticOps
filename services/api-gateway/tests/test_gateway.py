@@ -21,6 +21,7 @@ AUDIT = "http://audit.test"
 APPROVALS = "http://approval.test"
 RUNS = "http://orchestrator.test"
 REPORTING = "http://reporting.test"
+OPS = "http://ops.test"
 JWT = "x" * 32
 WEB = {"X-OpsPilot-Client": "web"}
 USER = {"id": "u1", "email": "lena@example.eu", "name": "Lena", "roles": ["l1_analyst"]}
@@ -46,6 +47,7 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
         approval_url=APPROVALS,
         orchestrator_url=RUNS,
         reporting_url=REPORTING,
+        ops_url=OPS,
         live_events=False,
         jwt_secret=JWT,
         sign_in_limit_per_minute=3,
@@ -296,3 +298,16 @@ async def test_dashboard_routes_are_forwarded(client: httpx.AsyncClient) -> None
     }
     r = await client.get("/api/incidents/KAN-19/timeline", headers=session(Role.SUPPORT_MANAGER))
     assert r.json() == {"entries": []}
+
+
+@respx.mock
+async def test_fix_evidence_is_fresh_and_503_when_ops_service_is_down(client: httpx.AsyncClient) -> None:
+    evidence = {"checked_at": "2026-11-03T10:31:00+00:00", "probes": [{"name": "Upload", "ok": False}]}
+    route = respx.get(f"{OPS}/v1/fixes/a-1/evidence").mock(return_value=httpx.Response(200, json=evidence))
+    r = await client.get("/api/fixes/a-1/evidence", headers=session(Role.SUPPORT_AGENT))
+    assert r.status_code == 200 and r.json() == evidence
+    assert route.calls.last.request.headers["authorization"].startswith("Bearer ")
+    respx.get(f"{OPS}/v1/fixes/a-1/evidence").mock(side_effect=httpx.ConnectError("refused"))
+    for _ in range(6):  # breaker opens after repeated failures; the answer stays a clean 503
+        r = await client.get("/api/fixes/a-1/evidence", headers=session(Role.SUPPORT_AGENT))
+        assert r.status_code == 503 and r.json()["dependency"] == "ops-service"

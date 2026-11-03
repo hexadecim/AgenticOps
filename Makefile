@@ -11,7 +11,7 @@ lint:
 	uv run ruff format --check .
 	uv run mypy libs/opspilot-common/src services/identity-service/src services/api-gateway/src services/settings-service/src services/mail-service/src services/privacy-service/src services/audit-service/src \
 		services/approval-service/src services/jira-connector/src services/agent-orchestrator/src \
-		services/reporting-service/src
+		services/reporting-service/src services/ops-service/src
 	uv run lint-imports
 
 format:

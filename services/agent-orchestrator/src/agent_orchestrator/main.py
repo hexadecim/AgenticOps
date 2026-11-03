@@ -55,7 +55,7 @@ def create_app(
                 inbox = Inbox(container.tables.inbox, f"{SERVICE}.events")
                 handler = on_event(
                     container.start_run, container.record_decision, container.record_ticket,
-                    container.llm_settings, worker.wake,
+                    container.llm_settings, worker.wake, container.record_fix,
                 )  # fmt: skip
                 runtime.add_consumer("events", BINDINGS, inbox.guard(container.sessions, handler))
                 await runtime.start()

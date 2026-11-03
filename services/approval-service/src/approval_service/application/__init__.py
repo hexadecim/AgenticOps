@@ -8,7 +8,9 @@ from typing import Any
 
 from opspilot_common.auth.principal import Principal
 from opspilot_common.events.catalogue import (
+    ActionExecuted,
     ApprovalDecided,
+    ApprovalReminder,
     ApprovalRequested,
     Decision,
     Gate,
@@ -162,3 +164,51 @@ class RecordTicketOutcome:
                 approval.ticket_failed(p.reason)
             await uow.approvals.save(approval)
             await uow.commit()
+
+
+class RecordFixOutcome:
+    """ops-service's result for an approved fix gate."""
+
+    def __init__(self, uow: UowFactory) -> None:
+        self._uow = uow
+
+    async def __call__(self, p: ActionExecuted) -> None:
+        async with self._uow() as uow:
+            approval = await uow.approvals.get(p.approval_id)
+            if approval is None or approval.gate is not Gate.FIX:
+                return
+            approval.fix_executed(p.ok, p.detail)
+            await uow.approvals.save(approval)
+            await uow.commit()
+
+
+class SendReminders:
+    """Every minute: `approval.reminder` for gates that have waited too long (T2: every 15 min)."""
+
+    def __init__(self, uow: UowFactory, clock: Clock) -> None:
+        self._uow, self._clock = uow, clock
+
+    async def __call__(self) -> int:
+        now = self._clock.now()
+        sent = 0
+        async with self._uow() as uow:
+            for approval in await uow.approvals.list(statuses={Status.PENDING}, gate=Gate.FIX):
+                if not approval.remind(now):
+                    continue
+                await uow.approvals.save(approval)
+                uow.events.record(
+                    ApprovalReminder(
+                        approval_id=approval.id,
+                        gate=approval.gate,
+                        waiting_seconds=int((now - approval.requested_at).total_seconds()),
+                        run_id=approval.run_id,
+                        thread_id=approval.thread_id,
+                        jira_key=approval.jira_key,
+                        title=approval.title,
+                        reminder=approval.reminders,
+                    ),
+                    actor="approval-service",
+                )
+                sent += 1
+            await uow.commit()
+        return sent

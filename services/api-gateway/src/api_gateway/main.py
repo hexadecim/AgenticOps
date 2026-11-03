@@ -71,6 +71,7 @@ def create_app(container: Container | None = None) -> FastAPI:
             container.approvals,
             container.runs,
             container.reporting,
+            container.ops,
             container.live,
             container.verifier,
             container.health,

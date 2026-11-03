@@ -1,4 +1,5 @@
-"""approval-service, agent-orchestrator and reporting-service clients, each behind its own circuit breaker."""
+"""approval-service, agent-orchestrator, reporting-service and ops-service clients, each behind its own
+circuit breaker."""
 
 from __future__ import annotations
 
@@ -29,3 +30,9 @@ class ReportingHttpClient(ServiceHttpClient):
 
     async def timeline(self, token: str, key: str) -> Json:
         return await self._obj("GET", f"/v1/incidents/{key}/timeline", token=token)
+
+
+class OpsHttpClient(ServiceHttpClient):
+    async def evidence(self, token: str, approval_id: str) -> Json:
+        # Fresh probes every time: never cached, because a fix must not be approved on stale evidence.
+        return await self._obj("GET", f"/v1/fixes/{approval_id}/evidence", token=token)

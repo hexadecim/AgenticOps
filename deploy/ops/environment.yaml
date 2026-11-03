@@ -1,0 +1,40 @@
+# Mock production environment for development and demos (ops-service, executor "mock").
+# Nothing here touches a real system: probes read the simulation, the mock executor changes only it.
+# Faults below open the first time ops-service starts; re-open one with
+#   ./opspilot.sh shell ops-service  →  python -m ops_service.mock_fault upload-worker eu-west-1
+regions: [eu-west-1]
+sites:
+  SITE-A014: eu-west-1
+  SITE-B207: eu-west-1
+  SITE-C031: eu-west-1
+services: [portal, login, upload-api, upload-worker, analytics, reports]
+probes:
+  - name: Portal
+    services: [portal]
+    ok: "200 in 180 ms"
+    latency_ms: 180
+  - name: Login
+    services: [login]
+    ok: "test account ok, 420 ms"
+    latency_ms: 420
+  - name: Upload
+    services: [upload-api, upload-worker]
+    ok: "test file stored in 1.4 s"
+    fail: "timeout after 30 s, 0 bytes stored"
+    latency_ms: 1400
+  - name: Analytics
+    services: [analytics]
+    ok: "last job ok, 3 min ago"
+  - name: Reports
+    services: [reports]
+    ok: "200 in 240 ms"
+    latency_ms: 240
+faults:
+  - service: upload-worker
+    region: eu-west-1
+    detail: "storage write failed: EIO on /vol/uploads"
+deployment: "Last deployment: upload-api v2.14.1, 3 days ago. No change in the last 24 h."
+impact:
+  - label: uploads waiting
+    value: 41
+    probe: Upload

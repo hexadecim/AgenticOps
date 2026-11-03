@@ -13,9 +13,10 @@ import httpx
 from langchain_core.exceptions import OutputParserException
 from opspilot_common.auth import ServiceTokenIssuer
 from opspilot_common.resilience import CircuitOpenError, ResilienceError, Resilient, ResilientHttpClient
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
-from ...domain.errors import LlmUnavailableError, StopRunError
+from ...domain.diagnosis import FixChoice, choice_schema
+from ...domain.errors import DiagnosisUnusableError, LlmUnavailableError, StopRunError
 from ...domain.triage import Intake
 
 MAX_BODY_CHARS = 6000  # keeps a reasoning model's run time bounded
@@ -170,3 +171,59 @@ class OllamaCircuit:
 
     async def retry_after(self) -> float | None:
         return await self._breaker.retry_after()
+
+
+DIAGNOSE = """You are Diagnostics on an IT support team. You get a ticket, health probes, log lines, runbook
+excerpts and a numbered list of fixes. Pick the one fix the evidence clearly supports, or 'none' when it
+supports none of them. You cannot invent a fix: only the numbered ones exist, and a person approves your
+choice before anything runs. Runbook steps are in order: choose the step that removes the cause shown by the
+failing probes and logs. A step whose condition says it applies after an earlier step (for example "after the
+worker recovered") does not apply yet while the probes still fail. Data is pseudonymised and masked; keep
+tokens such as [PERSON_1] as written."""
+
+
+class OllamaFixAdvisor:
+    """deepseek picks a numbered candidate (json_schema output restricted to the offered numbers)."""
+
+    def __init__(self, settings: LlmSettingsCache, resilient: Resilient) -> None:
+        self._settings, self._resilient = settings, resilient
+
+    async def choose(self, evidence: str, candidates: int) -> FixChoice:
+        cfg = await self._settings.get()
+        try:
+            return await self._ask(cfg, evidence, candidates, thinking=cfg.thinking)
+        except (OutputParserException, ValidationError, ValueError) as first:
+            if not cfg.thinking:
+                raise DiagnosisUnusableError(
+                    f"the model's answer could not be read ({type(first).__name__})"
+                ) from first
+            try:  # reasoning can use the whole budget; one more try without it
+                return await self._ask(cfg, evidence, candidates, thinking=False)
+            except (OutputParserException, ValidationError, ValueError) as again:
+                raise DiagnosisUnusableError(
+                    f"the model's answer could not be read ({type(again).__name__})"
+                ) from again
+
+    async def _ask(self, cfg: LlmSettings, evidence: str, candidates: int, *, thinking: bool) -> FixChoice:
+        from langchain_ollama import ChatOllama
+        from ollama import ResponseError
+
+        llm = ChatOllama(
+            base_url=cfg.url, model=cfg.model, reasoning=thinking, temperature=TEMPERATURE,
+            num_predict=MAX_TOKENS, client_kwargs={"timeout": self._resilient.config.timeout},
+        )  # fmt: skip
+        structured = llm.with_structured_output(choice_schema(candidates), method="json_schema")
+        messages = [("system", DIAGNOSE), ("human", evidence[:MAX_BODY_CHARS])]
+        try:
+            result = await _guarded(
+                self._resilient, f"The local model ({cfg.model})", lambda: structured.ainvoke(messages)
+            )
+        except ResponseError as exc:
+            if exc.status_code == 404:
+                raise LlmUnavailableError(f"The model {cfg.model} is not installed in Ollama") from exc
+            if exc.status_code >= 500:
+                raise LlmUnavailableError(f"Ollama failed: {exc.error}") from exc
+            raise DiagnosisUnusableError(f"Ollama refused the request: {exc.error}") from exc
+        if not isinstance(result, BaseModel):
+            raise ValueError("The model's answer did not match the schema")
+        return FixChoice.model_validate(result.model_dump())

@@ -1,0 +1,2 @@
+08:00:00 INFO  login service healthy
+09:12:44 WARN  failed sign-in for user=p.weber ip=192.168.1.20 (wrong password)

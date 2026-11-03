@@ -21,6 +21,7 @@ from ...ports import (
     DownstreamError,
     IdentityPort,
     MailPort,
+    OpsPort,
     PrivacyPort,
     ReportingPort,
     RunsPort,
@@ -121,6 +122,7 @@ def build_router(
     approvals: ApprovalPort,
     runs: RunsPort,
     reporting: ReportingPort,
+    ops: OpsPort,
     live: Broadcaster,
     verifier: TokenVerifier,
     health: SystemHealth,
@@ -251,6 +253,12 @@ def build_router(
     @router.post("/approvals/{approval_id}/decision", tags=["approvals"])
     async def decide(token: Token, approval_id: str, body: dict[str, Any]) -> dict[str, Any]:
         return await approvals.decide(token, approval_id, body)
+
+    @router.get("/fixes/{approval_id}/evidence", tags=["approvals"])
+    async def fix_evidence(token: Token, approval_id: str) -> dict[str, Any]:
+        """Fresh probes and masked logs for a pending T2 fix. 503 when ops-service's circuit is open: the
+        console then shows "Evidence unavailable" and disables Approve."""
+        return await ops.evidence(token, approval_id)
 
     @router.get("/runs/summary", tags=["approvals"])
     async def run_summary(token: Token) -> dict[str, Any]:

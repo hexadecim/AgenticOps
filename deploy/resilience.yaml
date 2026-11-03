@@ -70,3 +70,8 @@ dependencies:
     timeout: 10
     retry: { attempts: 1 }
     breaker: { fail_max: 5, reset_timeout: 20 }
+  probe-ops:
+    timeout: 10
+    retry: { attempts: 1 }
+  # ops-service: real HTTP probes from Admin › Ops get one circuit each (probe-target-<name>, defaults apply).
+  # The mock executor needs no block; a real executor gets one here (and in ADR-0002) when it is added.

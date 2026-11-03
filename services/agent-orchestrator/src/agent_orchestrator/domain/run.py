@@ -21,14 +21,27 @@ class RunStatus(StrEnum):
     IGNORED = "ignored"  # not a support request (newsletter, personal mail, ...)
     APPROVED = "approved"  # ticket approved; jira-connector is creating it
     REJECTED = "rejected"
-    TICKET_CREATED = "ticket_created"
+    TICKET_CREATED = "ticket_created"  # final when no allow-listed fix was found (or a report was linked)
+    WAITING_OPS = "waiting_ops"  # ops-service unavailable: no evidence, retry later
+    FIX_APPROVED = "fix_approved"  # T2 approved; ops-service is running the action
+    FIX_REJECTED = "fix_rejected"
+    FIX_FAILED = "fix_failed"  # the action failed or the probes still fail afterwards: on-call
+    RESOLVED = "resolved"  # the action ran and the health re-check passed
     FAILED = "failed"
 
 
 # The worker picks these up (when due).
 ACTIONABLE = frozenset(
-    {RunStatus.QUEUED, RunStatus.RESUMING, RunStatus.WAITING_LLM, RunStatus.WAITING_PRIVACY}
+    {
+        RunStatus.QUEUED,
+        RunStatus.RESUMING,
+        RunStatus.WAITING_LLM,
+        RunStatus.WAITING_PRIVACY,
+        RunStatus.WAITING_OPS,
+    }
 )
+# Where the graph waits for another service's result, and the status the run shows meanwhile.
+AWAITS = {"ticket": ("await_ticket", RunStatus.APPROVED), "fix": ("await_fix", RunStatus.FIX_APPROVED)}
 
 
 @dataclass(slots=True)
@@ -46,6 +59,9 @@ class Run:
     jira_key: str | None = None
     decision: dict[str, Any] | None = field(default=None)
     attempts: int = 0
+    # Results of other services (jira-connector's ticket, ops-service's action), kept even when they arrive
+    # before the graph reaches the node that waits for them.
+    results: dict[str, Any] = field(default_factory=dict)
 
     def start(self, now: datetime) -> None:
         self.status, self.updated_at, self.detail = RunStatus.RUNNING, now, None
@@ -53,9 +69,34 @@ class Run:
     def park(self, status: RunStatus, now: datetime, wait: timedelta, detail: str) -> None:
         self.status, self.updated_at, self.due_at, self.detail = status, now, now + wait, detail
 
-    def waiting_for_approval(self, now: datetime, approval_id: str) -> None:
+    def waiting_for_approval(self, now: datetime, approval_id: str, node: str = "gate_ticket") -> None:
         self.status, self.updated_at, self.approval_id = RunStatus.WAITING_APPROVAL, now, approval_id
-        self.node, self.detail = "gate_ticket", None
+        self.node, self.detail = node, None
+
+    def waiting_for(self, kind: str, now: datetime, detail: str) -> None:
+        """The graph waits at await_ticket / await_fix. If the result is already here, continue at once."""
+        node, status = AWAITS[kind]
+        self.node, self.updated_at = node, now
+        if kind in self.results:
+            self.status, self.due_at, self.decision, self.detail = (
+                RunStatus.RESUMING,
+                now,
+                self.results[kind],
+                None,
+            )
+        else:
+            self.status, self.detail = status, detail
+
+    def result_arrived(self, kind: str, now: datetime, value: dict[str, Any]) -> bool:
+        """Keep the result; True when the run was waiting for it (then the worker continues)."""
+        if kind in self.results:
+            return False  # a repeat
+        self.results = {**self.results, kind: value}
+        node, status = AWAITS[kind]
+        if self.status is status and self.node == node:
+            self.status, self.updated_at, self.due_at, self.decision = RunStatus.RESUMING, now, now, value
+            return True
+        return False
 
     def decided(self, now: datetime, decision: dict[str, Any]) -> bool:
         """A decision for the gate this run waits at; False if it is not waiting (repeat or stale)."""

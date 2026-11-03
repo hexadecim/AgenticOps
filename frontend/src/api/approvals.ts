@@ -19,9 +19,11 @@ export interface ApprovalSummary {
   decided_at: string | null;
   decided_by_role: Role | null;
   reason: string | null;
-  outcome: "ticket_pending" | "ticket_created" | "linked" | "ticket_failed" | null;
+  outcome: "ticket_pending" | "ticket_created" | "linked" | "ticket_failed" | "fix_pending" | "fix_done" | "fix_failed" | null;
   outcome_detail: string | null;
   jira_key: string | null;
+  reminders: number;
+  next_reminder_at: string | null;
 }
 
 export interface QueueStats {
@@ -77,6 +79,67 @@ export interface ApprovalDetail extends ApprovalSummary {
   edits: Record<string, unknown>;
 }
 
+export interface Probe {
+  name: string;
+  ok: boolean;
+  detail: string;
+  latency_ms: number | null;
+  services?: string[];
+  region?: string | null;
+}
+
+export interface LogFinding {
+  service: string;
+  lines: string[];
+  similar: number;
+  since: string | null;
+}
+
+/** Gate T2: an allow-listed action proposed by Diagnostics (agent-orchestrator) from ops-service evidence. */
+export interface FixProposal {
+  action: {
+    name: string;
+    title: string | null;
+    signature: string;
+    params: Record<string, string>;
+    params_spec: { name: string; label: string; choices: string[] }[];
+    effect: string;
+    rollback: string;
+  };
+  runbook: { id: string; title: string; step: number; why: string };
+  diagnosis: { likely_cause: string; confidence: "low" | "medium" | "high"; explanation: string };
+  after: string;
+  evidence: {
+    checked_at: string;
+    probes: Probe[];
+    logs: LogFinding[];
+    deployment: string | null;
+    runbooks: { id: string; title: string; heading: string; score: number; method: string }[];
+    notes: string[];
+  };
+  affected: { sites: string[]; reporters: number; impact: Record<string, number> };
+  region: string | null;
+  site: string | null;
+  jira_key: string | null;
+  model: { model: string; thinking: boolean };
+}
+
+export interface FixApprovalDetail extends ApprovalSummary {
+  proposal: FixProposal;
+  edits: { params?: Record<string, string> };
+}
+
+/** Fresh evidence from ops-service for a pending fix (503 when ops-service is unavailable). */
+export interface Evidence {
+  checked_at: string;
+  region: string | null;
+  probes: Probe[];
+  logs: LogFinding[];
+  executor: string;
+  enabled: boolean;
+  job: { status: "pending" | "done" | "failed"; ok: boolean | null; detail: string | null; attempts: number } | null;
+}
+
 export interface RunSummary {
   counts: Record<string, number>;
   ai_paused: boolean;
@@ -95,6 +158,8 @@ export const approvalsApi = {
   queue: (decided: boolean) =>
     api<{ items: ApprovalSummary[]; stats: QueueStats }>(`/approvals${decided ? "?decided=true" : ""}`),
   get: (id: string) => api<ApprovalDetail>(`/approvals/${id}`),
+  getFix: (id: string) => api<FixApprovalDetail>(`/approvals/${id}`),
+  evidence: (id: string) => api<Evidence>(`/fixes/${id}/evidence`),
   decide: (id: string, decision: "approve" | "reject", reason?: string, edits: Record<string, unknown> = {}) =>
     api<ApprovalDetail>(`/approvals/${id}/decision`, { method: "POST", body: { decision, reason, edits } }),
   runs: () => api<RunSummary>("/runs/summary"),

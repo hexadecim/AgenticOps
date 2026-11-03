@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from datetime import datetime
 from typing import Any
 
 import fakeredis.aioredis
@@ -21,6 +22,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from ..conftest import NOW, imap_config, raw_mail
+
+
+class FixedClock:
+    """The test mail is dated NOW; the poller's 24 h look-back must be measured from NOW too."""
+
+    def now(self) -> datetime:
+        return NOW
+
 
 SECRET = "mail-test-jwt-secret-at-least-32-chars"
 
@@ -66,6 +75,7 @@ async def api() -> AsyncIterator[tuple[httpx.AsyncClient, Container, Builder, So
         redis=fakeredis.aioredis.FakeRedis(),
         source=source,
         builder=builder,
+        clock=FixedClock(),
     )
     async with engine.begin() as conn:
         await conn.run_sync(container.tables.metadata.create_all)

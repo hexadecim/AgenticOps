@@ -242,7 +242,14 @@ async def test_email_to_ticket_gate_and_approval(world: World) -> None:
         )
     )
     run = await world.run()
-    assert run.status is RunStatus.TICKET_CREATED and run.jira_key == "KAN-15"
+    assert run.status is RunStatus.RESUMING and run.jira_key == "KAN-15"  # on to diagnostics
+    (created,) = [
+        e for e in await world.events("run.status_changed") if e["payload"]["status"] == "ticket_created"
+    ]
+    assert created["payload"]["jira_key"] == "KAN-15"
+    await world.advance()
+    run = await world.run()  # this world has no ops-service: the run ends at the ticket
+    assert run.status is RunStatus.TICKET_CREATED and run.detail == "Diagnostics is not set up"
 
 
 async def test_rejection_ends_the_run(world: World) -> None:

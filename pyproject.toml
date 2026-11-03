@@ -20,6 +20,7 @@ members = [
   "services/jira-connector",
   "services/agent-orchestrator",
   "services/reporting-service",
+  "services/ops-service",
 ]
 
 [dependency-groups]

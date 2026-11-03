@@ -12,11 +12,14 @@ from opspilot_common.web import CorrelationIdMiddleware, health_routes
 
 from .adapters.inbound.events import BINDINGS, on_event
 from .adapters.inbound.http import build_router, install_error_handlers
+from .adapters.inbound.reminders import ReminderLoop
 from .bootstrap import SERVICE, Container, build_container
 from .config import Settings
 
 
-def create_app(container: Container | None = None, *, with_events: bool = True) -> FastAPI:
+def create_app(
+    container: Container | None = None, *, with_events: bool = True, with_reminders: bool = True
+) -> FastAPI:
     if container is None:
         settings = Settings()
         configure_logging(SERVICE, json=settings.log_json)
@@ -29,10 +32,15 @@ def create_app(container: Container | None = None, *, with_events: bool = True) 
             runtime = EventRuntime(SERVICE, container.settings.rabbitmq_url, container.registry)
             runtime.add_outbox(container.sessions, container.tables.outbox)
             inbox = Inbox(container.tables.inbox, f"{SERVICE}.events")
-            handler = on_event(container.record_request, container.record_outcome)
+            handler = on_event(container.record_request, container.record_outcome, container.record_fix)
             runtime.add_consumer("events", BINDINGS, inbox.guard(container.sessions, handler))
             await runtime.start()
+        reminders = ReminderLoop(container.send_reminders) if with_reminders else None
+        if reminders:
+            await reminders.start()
         yield
+        if reminders:
+            await reminders.stop()
         if runtime:
             await runtime.stop()
         for close in container.closers:

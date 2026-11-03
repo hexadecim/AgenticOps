@@ -14,10 +14,24 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from .adapters.inbound.worker import RunWorker
-from .adapters.outbound.llm import LlmSettingsCache, OllamaCircuit, OllamaEmbedder, OllamaIntake
-from .adapters.outbound.services_http import JiraContextClient, PrivacyClient
+from .adapters.outbound.llm import (
+    LlmSettingsCache,
+    OllamaCircuit,
+    OllamaEmbedder,
+    OllamaFixAdvisor,
+    OllamaIntake,
+)
+from .adapters.outbound.services_http import JiraContextClient, OpsClient, PrivacyClient
 from .adapters.outbound.sql import OrchestratorTables, SqlEventSink, SqlThreadTickets, SqlUnitOfWork
-from .application import AdvanceRuns, RecordDecision, RecordTicketResult, RunSummary, StartRun, build_graph
+from .application import (
+    AdvanceRuns,
+    RecordDecision,
+    RecordFixResult,
+    RecordTicketResult,
+    RunSummary,
+    StartRun,
+    build_graph,
+)
 from .config import Settings
 from .ports import AgentPorts, Clock, LlmCircuit, UnitOfWork
 
@@ -43,6 +57,7 @@ class Container:
     start_run: StartRun
     record_decision: RecordDecision
     record_ticket: RecordTicketResult
+    record_fix: RecordFixResult
     run_summary: RunSummary
     current_user: Callable[..., Awaitable[Principal]] = field(repr=False)
     closers: list = field(default_factory=list)  # type: ignore[type-arg]
@@ -93,6 +108,8 @@ def build_container(
             issues=JiraContextClient(http("jira-connector", settings.jira_connector_url), tokens),
             events=SqlEventSink(sessions, tables),
             threads=SqlThreadTickets(sessions, tables),
+            ops=OpsClient(http("ops-service", settings.ops_url), tokens),
+            advisor=OllamaFixAdvisor(llm_settings, registry.get("ollama")),
         )
     clock = clock or SystemClock()
     return Container(
@@ -108,6 +125,7 @@ def build_container(
         start_run=StartRun(uow, clock),
         record_decision=RecordDecision(uow, clock),
         record_ticket=RecordTicketResult(uow, clock),
+        record_fix=RecordFixResult(uow, clock),
         run_summary=RunSummary(uow, clock),
         current_user=principal_dependency(TokenVerifier(settings.jwt_secret)),
         closers=closers,
