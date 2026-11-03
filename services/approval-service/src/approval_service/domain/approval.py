@@ -77,6 +77,8 @@ class Approval:
     outcome_detail: str | None = None
     reminders: int = 0
     reminded_at: datetime | None = None
+    health: str | None = None  # T2 after the fix ran: "resolved" | "fix_failed" (the health re-check)
+    health_detail: str | None = None
 
     def decide(
         self,
@@ -172,3 +174,10 @@ class Approval:
 
     def fix_executed(self, ok: bool, detail: str) -> None:
         self.outcome, self.outcome_detail = (Outcome.FIX_DONE if ok else Outcome.FIX_FAILED), detail
+
+    def health_checked(self, resolved: bool, detail: str | None) -> bool:
+        """The orchestrator's health re-check after an approved fix. Only an approved T2 gate takes it."""
+        if self.gate is not Gate.FIX or self.status is not Status.APPROVED:
+            return False
+        self.health, self.health_detail = ("resolved" if resolved else "fix_failed"), detail
+        return True

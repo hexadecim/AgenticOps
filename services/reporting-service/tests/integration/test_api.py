@@ -112,10 +112,14 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
         run(3.1, "ticket_created", jira_key="KAN-19"),
         run(5, "queued", n=2),
         run(6, "ignored", n=2),
+        # Scheduled probe sweep (no run): a system change; an older "healthy" arrives after the failure.
+        at(4, c.ProbeStatus(probe="Upload", ok=False, detail="timeout after 30 s", region="eu-west-1")),
+        at(3.5, c.ProbeStatus(probe="Upload", ok=True, detail="200 in 210 ms", region="eu-west-1")),
+        at(3.6, c.ProbeStatus(probe="Portal", ok=True, detail="200 in 180 ms", latency_ms=180)),
     ]
     for event in events:
         await handler(event)
-    await handler(events[-3])  # redelivered: ignored by the inbox
+    await handler(events[-6])  # redelivered: ignored by the inbox
     app = create_app(container, with_events=False)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://reporting") as http:
         yield http
@@ -136,6 +140,13 @@ async def test_dashboard_from_events(client: httpx.AsyncClient) -> None:
     deps = {x["name"]: x for x in d["dependencies"]}
     assert deps["ollama"]["health"] == "up" and deps["ollama"]["callers"] == {"agent-orchestrator": "closed"}
     assert deps["jira"]["health"] == "up" and deps["jira"]["since"] is None  # no failures recorded
+
+    probes = {(x["name"], x["region"]): x for x in d["probes"]}
+    assert set(probes) == {("Upload", "eu-west-1"), ("Portal", None)}
+    upload = probes[("Upload", "eu-west-1")]
+    assert upload["health"] == "down" and upload["detail"] == "timeout after 30 s"  # older "ok" ignored
+    assert upload["since"] == (T0 + timedelta(minutes=4)).isoformat()
+    assert probes[("Portal", None)]["health"] == "up" and probes[("Portal", None)]["latency_ms"] == 180
 
     stages = {s["id"]: s["count"] for s in d["stages"]}
     assert stages["engineering"] == 1 and stages["approval"] == 0 and stages["intake"] == 0
@@ -162,7 +173,10 @@ async def test_dashboard_from_events(client: httpx.AsyncClient) -> None:
         ("Triage", "Approval requested (ticket): Upload stuck at 0%"),
         ("L1 Analyst", "Approved the ticket request"),
         ("Jira connector", "KAN-19 created"),
+        ("Health", "Upload (eu-west-1) probe healthy: 200 in 210 ms"),
+        ("Health", "Portal probe healthy: 200 in 180 ms"),
+        ("Health", "Upload (eu-west-1) probe failing: timeout after 30 s"),
     ]
     again = (await client.get("/v1/incidents/KAN-19/timeline", headers=user())).json()
-    assert len(again["entries"]) == 9
+    assert len(again["entries"]) == 12
     assert (await client.get("/v1/incidents/KAN-404/timeline", headers=user())).json()["entries"] == []

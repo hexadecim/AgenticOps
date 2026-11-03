@@ -19,12 +19,12 @@ _Last updated: 2026-11-03_
 | 3 | privacy-service + audit-service | ✅ Done | 36 service tests (incl. real Presidio) · live sign-in in audit API, tampering rejected, fail-closed with mail-service down |
 | 4 | Agent core + T1 gate → Jira (**MVP**) | ✅ Done | 31 new service tests · live: 2 emails → Approvals → approved in the UI → KAN-18, KAN-19 created; audit chain complete |
 | 5 | reporting-service, Dashboard, Audit log UI | ✅ Done | 5 service + 3 shared + 1 gateway tests · live: dashboard from real history, breaker trip/recovery shown |
-| 6 | ops-service, diagnostics, T2 production-fix gate | 🟨 Built, UI walk-through pending | 18 ops + 10 orchestrator + 3 approval + 1 gateway tests · live: pgvector index, masked logs, deepseek picks the RB-07 restart |
+| 6 | ops-service, diagnostics, T2 production-fix gate | ✅ Done | 22 ops + 11 orchestrator + 4 approval + 1 gateway tests · live in the UI: T1 → KAN-29 → T2 → resolved; Platform health probes; T2 reminder fired |
 | 7 | Comms agent, T3 customer-message gate, outbound email | ⬜ | – |
 | 8 | Privacy / GDPR screens and retention jobs | ⬜ | – |
 | 9 | Hardening: chaos tests, tracing, load, production config | ⬜ | – |
 
-Progress: **8 of 11** milestones done (0–6; 4 = **MVP**). 248 automated tests.
+Progress: **8 of 11** milestones done (0–6; 4 = **MVP**). 254 automated tests.
 
 ## Dev environment (current state)
 
@@ -35,7 +35,7 @@ Progress: **8 of 11** milestones done (0–6; 4 = **MVP**). 248 automated tests.
 | RabbitMQ / Jaeger | http://localhost:15672 (opspilot / opspilot) · http://localhost:16686 |
 | Admin sign-in | `admin@opspilot.local`; password reset on 2026-10-08 to the one you chose (not stored in the repo; `.env`'s `BOOTSTRAP_ADMIN_PASSWORD` no longer matches). Authenticator reset: first sign-in shows the QR code |
 | Demo users | analyst@, agent@, manager@, compliance@opspilot.local — set a temporary password via Users and roles › Manage › Reset password |
-| Deactivated helper users | walkthrough@, check-1b@, check-m3-…@ and m6-walk@opspilot.local (used for automated checks; leave deactivated) |
+| Deactivated helper users | walkthrough@, check-1b@, check-m3-…@, m6-walk@ and m6-gaps@opspilot.local (used for automated checks; leave deactivated) |
 | Approver for tests | `analyst@opspilot.local` (L1 Analyst), password and authenticator set by you on 2026-10-08 |
 | Jira | `supportautomation.atlassian.net`, project KAN, type Incident. OpsPilot created KAN-18 (you deleted it), KAN-19, KAN-28 and KAN-29 (M6 walk-through) |
 | Agent services | approval-service :8006, jira-connector :8007, agent-orchestrator :8008, reporting-service :8009 (compose-internal) |
@@ -72,7 +72,7 @@ Progress: **8 of 11** milestones done (0–6; 4 = **MVP**). 248 automated tests.
 - [x] Architecture checks (import-linter): layers per service, framework-free core, services independent
 - [x] Live demo against real infra: outbox → RabbitMQ, poison message → DLQ, Ollama breaker open/half-open/
       closed via Toxiproxy, deepseek-r1:8b structured intake (~70 s per call on this PC)
-- [~] CI workflow written (`.github/workflows/ci.yml`) — **never run**: no commits, no remote yet
+- [x] CI workflow (`.github/workflows/ci.yml`) — runs on every PR and push to `main` on GitHub, green since PR #1
 
 ## Milestone 1a — Authentication ✅
 
@@ -156,7 +156,7 @@ Progress: **8 of 11** milestones done (0–6; 4 = **MVP**). 248 automated tests.
 - [x] GreenMail dev mailbox in compose (IMAP 3143, SMTP 3025, `support@opspilot.local`)
 
 **Deferred from 1b**
-- [ ] Ops section (probe targets, runbook folder, executor) → milestone 6, when ops-service exists
+- [x] Ops section (probe targets, runbook folder, executor) → done in milestone 6
 - [x] Internal "resolved settings" API for services, with service-to-service authentication → done in milestone 2
 - [ ] Gmail "Connect with Google" consent flow (today: paste client id/secret + refresh token)
 - [ ] Jira, Gmail and Graph testers verified against real accounts (needs your credentials)
@@ -319,7 +319,7 @@ ingestion itself was verified in milestone 2.)
       use the approver's value — added 2026-10-08, 3 tests; not yet exercised live (needs a real approval)
 - [ ] Editing the ticket summary on the same screen (API accepts it; no UI yet)
 - [ ] Assignee / component mapping ("Assign to Support engineer" in the wireframe)
-- [ ] Approval reminders (15 min for T2) → milestone 6
+- [x] Approval reminders (15 min for T2) → done in milestone 6 (seen live 2026-11-03)
 - [ ] Direct link from the approval to the Jira issue (needs the site URL in the approval)
 
 ## Milestone 5 — reporting-service, Dashboard, Audit UI ✅
@@ -371,7 +371,7 @@ ingestion itself was verified in milestone 2.)
       "nothing" become empty — 2 tests
 
 **Deferred from 5**
-- [ ] Health probes of your own systems (wireframe "Platform health") → milestone 6 (ops-service)
+- [x] Health probes of your own systems (wireframe "Platform health") → done in milestone 6
 - [ ] Resolved-today and ticket stage sync from Jira status
 - [ ] Incident end time (today all system events after the start show on open incidents)
 - [ ] A "rebuild read model" command (the backfill was a manual outbox replay)
@@ -397,11 +397,23 @@ Design: [ADR-0006](adr/0006-diagnostics-and-fix-gate.md). Mock environment, runb
       model's `upload-api` to `upload-worker` → mock executor cleared the fault → health re-check "All 5 probes pass" →
       run `resolved`; audit chain complete with people shown by role
 
-**Follow-ups found in the walk-through (not blocking)**
-- [ ] deepseek's reasoning named upload-worker but it picked the `restart_service(upload-api)` candidate: when two
-      candidates differ only by a parameter, offer one candidate per action and let the evidence choose the parameter
-- [ ] Reasoning summary on the fix screen is cut mid-sentence and runs into the "deepseek-r1:8b · thinking" label
-- [ ] Outcome footer still says "Health re-checks the probes next" after the run is already resolved
+**Gaps closed after the walk-through (2026-11-03)**
+- [x] Platform health shows the supported systems' probes: ops-service sweeps them every minute
+      (`PROBE_INTERVAL_SECONDS`, 0 = off) and announces every probe once after start-up; reporting-service keeps a
+      `probes` read model (newest wins, older events ignored) and puts sweep changes on open incidents' timelines;
+      gateway relays `probe.status` live — live: fault re-opened → Upload "Fail" on the Dashboard within a minute
+- [x] Wrong service in the proposal (upload-api): the cause was **not** the model. `deploy/ops` had been deleted and
+      recreated by a git branch switch, leaving ops-service's bind mount empty, so the log search silently found
+      nothing and the candidate fell back to the probe's first service. Now an unreadable log folder is a note in
+      the evidence ("Logs unavailable …"), and without log evidence the service follows the runbook's own order
+- [x] Explanation cut mid-word by the schema's `max_length`: trimmed to the last full sentence (or word + "…");
+      the model label sits on its own line
+- [x] Fix screen after the run: approval-service records the health re-check from `run.status_changed`
+      (`resolved` / `fix_failed`) and the footer says "Resolved … Health re-check: All 5 probes pass" (or asks to
+      escalate) — live on KAN-29's approval
+- [x] T2 reminder seen live: a labelled synthetic T2 request, back-dated 16 min, got `approval.reminder` within a
+      minute (audit: "Approval service · remind_approver"); then rejected with a reason as a throwaway Support
+      agent (`m6-gaps@`, deactivated)
 - Reject at T2 ends the run with the reason; continuing to Comms is milestone 7.
 
 ## Milestone 7 — Comms + T3 customer message ⬜
@@ -460,4 +472,4 @@ Design: [ADR-0006](adr/0006-diagnostics-and-fix-gate.md). Mock environment, runb
 | 23 | Real Gmail backlog after the stack was off since 21 Oct: ~550 runs queued at ~70 s each | Takes hours; synthetic tests had to be moved to the front of the queue | Dedicated support mailbox or sender allow-list (see #18) |
 | 24 | deepseek-r1:8b fix choice can take ~4 min (reasoning hits the budget, then a retry without it) | T2 requests appear minutes after the ticket | Acceptable (background); consider thinking off for diagnostics |
 | 22 | Breaker events are published directly (not via an outbox) | A transition while RabbitMQ is down is not reported (still visible in Redis/metrics/logs) | Acceptable: health is a live signal; the System health page reads Redis |
-| 23 | Reporting has no event store | Read models built before a consumer existed need an outbox replay | Add an event archive or rebuild command in milestone 9 |
+| 23 | Reporting has no event store | Read models built before a consumer existed need an outbox replay; a *new* read model inside an existing consumer cannot be backfilled that way (its inbox already holds the event ids) — probes avoid this by ops-service announcing their state at start-up | Add an event archive or rebuild command in milestone 9 |

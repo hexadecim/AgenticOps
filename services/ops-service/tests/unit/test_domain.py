@@ -116,6 +116,12 @@ def test_candidates_come_only_from_enabled_runbook_steps_with_fillable_parameter
     ]
     assert found[0].choices == {"service": ["upload-worker", "upload-api"], "region": ["eu-west-1"]}
     assert found[0].json()["signature"] == 'restart_service(service="upload-worker", region="eu-west-1")'
+    # Probe order lists upload-api first. Without log evidence to rank them, the runbook's own order wins.
+    found = candidates(
+        [match], env=ENV, enabled=frozenset({"restart_service"}), region="eu-west-1", site=None,
+        failing=["upload-api", "upload-worker"], ranked_by_logs=False,
+    )  # fmt: skip
+    assert found[0].params["service"] == "upload-worker"
     # No site known → retry_failed_uploads cannot be filled; disabled actions never appear.
     found = candidates(
         [match],

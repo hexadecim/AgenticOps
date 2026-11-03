@@ -80,7 +80,7 @@ function EvidencePanel({ a, evidence, error, loading }: {
       <Probes probes={evidence?.probes ?? proposed.probes} at={evidence?.checked_at ?? proposed.checked_at} stale={!evidence} />
       {(evidence?.logs ?? proposed.logs).map((f) => <Logs key={f.service} finding={f} />)}
       {proposed.deployment && <div className="muted" style={{ fontSize: 13 }}>{proposed.deployment}</div>}
-      {proposed.notes.map((n) => <div key={n} className="note"><Icon name="audit" size={16} /><span>{n}</span></div>)}
+      {[...new Set([...proposed.notes, ...(evidence?.notes ?? [])])].map((n) => <div key={n} className="note"><Icon name="audit" size={16} /><span>{n}</span></div>)}
     </section>
   );
 }
@@ -94,6 +94,14 @@ function Outcome({ a }: { a: FixApprovalDetail }) {
   if (a.outcome === "fix_failed") {
     return <span role="alert" className="row" style={{ gap: 8, fontSize: 15, fontWeight: 500, color: "var(--crit)" }}>
       <Icon name="alert" size={18} />Approved, but it did not run: {a.outcome_detail}</span>;
+  }
+  if (a.outcome === "fix_done" && a.health === "fix_failed") {
+    return <span role="alert" className="row" style={{ gap: 8, fontSize: 15, fontWeight: 500, color: "var(--crit)" }}>
+      <Icon name="alert" size={18} />Ran, but the health re-check failed: {a.health_detail ?? "probes still failing"}. Escalate to on-call; {key ?? "the incident"} stays open.</span>;
+  }
+  if (a.outcome === "fix_done" && a.health === "resolved") {
+    return <span className="row" style={{ gap: 8, fontSize: 15, fontWeight: 500, color: "var(--good)" }}>
+      <Icon name="check" size={18} />Resolved. {a.outcome_detail}. Health re-check: {a.health_detail ?? "probes pass"}.</span>;
   }
   if (a.outcome === "fix_done") {
     return <span className="row" style={{ gap: 8, fontSize: 15, fontWeight: 500, color: "var(--good)" }}>
@@ -210,7 +218,7 @@ export function ApproveFixPage() {
               <dt>Rollback</dt><dd>{p.action.rollback}</dd>
               <dt>After running</dt><dd>{p.after}</dd>
             </dl>
-            <div className="note"><Icon name="audit" size={16} /><span>{p.diagnosis.explanation} <span className="mono">· {p.model.model}{p.model.thinking ? " · thinking" : ""}</span></span></div>
+            <div className="note"><Icon name="audit" size={16} /><span>{p.diagnosis.explanation}<span className="mono muted" style={{ display: "block", marginTop: 4, fontSize: 12 }}>{p.model.model}{p.model.thinking ? " · thinking" : ""}</span></span></div>
           </section>
 
           <section aria-label="Who is affected" className="card card-pad op-enter op-d2">

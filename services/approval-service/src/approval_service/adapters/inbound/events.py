@@ -11,10 +11,11 @@ from opspilot_common.events.catalogue import (
     JiraIssueCreated,
     JiraIssueFailed,
     JiraIssueLinked,
+    RunStatusChanged,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...application import RecordFixOutcome, RecordRequest, RecordTicketOutcome
+from ...application import RecordFixHealth, RecordFixOutcome, RecordRequest, RecordTicketOutcome
 
 BINDINGS = [
     "approval.requested",
@@ -22,11 +23,15 @@ BINDINGS = [
     "jira.issue.linked",
     "jira.issue.failed",
     "action.executed",
+    "run.status_changed",
 ]
 
 
 def on_event(
-    record_request: RecordRequest, record_outcome: RecordTicketOutcome, record_fix: RecordFixOutcome
+    record_request: RecordRequest,
+    record_outcome: RecordTicketOutcome,
+    record_fix: RecordFixOutcome,
+    record_health: RecordFixHealth,
 ) -> Callable[[AsyncSession, EventEnvelope], Awaitable[None]]:
     async def handle(_: AsyncSession, envelope: EventEnvelope) -> None:
         payload = parse_payload(envelope)
@@ -36,5 +41,7 @@ def on_event(
             await record_outcome(payload)
         elif isinstance(payload, ActionExecuted):
             await record_fix(payload)
+        elif isinstance(payload, RunStatusChanged):
+            await record_health(payload)
 
     return handle

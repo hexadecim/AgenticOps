@@ -17,6 +17,7 @@ from ..domain.model import (
     Case,
     Dependency,
     Health,
+    Probe,
     ServiceLevel,
     StageCount,
     TimelineEntry,
@@ -153,11 +154,18 @@ class ProjectEvent:
                 uow, env, "Ops executor", f"{p.action}: {outcome}. {p.detail}", run_id=p.run_id,
                 thread_id=p.thread_id, jira_key=p.jira_key,
             )  # fmt: skip
-        elif isinstance(p, c.ProbeStatus) and p.thread_id:
+        elif isinstance(p, c.ProbeStatus):
+            region = p.region or ""
+            probe = await uow.probes.get(p.probe, region) or Probe(p.probe, region, p.ok)
+            if probe.record(p.ok, p.detail, p.latency_ms, at):
+                await uow.probes.save(probe)
             state = "healthy" if p.ok else "failing"
+            where = f" ({region})" if region else ""
+            # During a run the change belongs to that case; a scheduled sweep is a system change shown on
+            # every incident open at the time, like a circuit breaker.
             await self._note(
-                uow, env, "Health", f"{p.probe} probe {state}: {p.detail}", run_id=p.run_id,
-                thread_id=p.thread_id,
+                uow, env, "Health", f"{p.probe}{where} probe {state}: {p.detail}", run_id=p.run_id,
+                thread_id=p.thread_id, system=not p.thread_id,
             )  # fmt: skip
         elif isinstance(p, c.PrivacyRecorded) and p.action == "pseudonymise" and p.thread_id:
             await self._note(uow, env, "Privacy gate", p.detail, thread_id=p.thread_id)
@@ -198,6 +206,16 @@ class DependencyView:
 
 
 @dataclass(frozen=True, slots=True)
+class ProbeView:
+    name: str
+    region: str
+    health: Health
+    detail: str
+    latency_ms: int | None
+    since: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
 class IncidentView:
     key: str
     title: str | None
@@ -212,6 +230,7 @@ class IncidentView:
 class Dashboard:
     generated_at: datetime
     dependencies: list[DependencyView]
+    probes: list[ProbeView]
     stages: list[StageCount]
     service_levels: list[ServiceLevel]
     incidents: list[IncidentView]
@@ -227,6 +246,10 @@ class GetDashboard:
             cases = await uow.cases.active_or_since(now - WINDOW)
             known = {d.name: d for d in await uow.dependencies.all()}
             ticketed = await uow.cases.incidents(50)
+            probes = [
+                ProbeView(p.name, p.region, p.health, p.detail, p.latency_ms, p.since)
+                for p in await uow.probes.all()
+            ]
         names = list(KEY_DEPENDENCIES) + sorted(n for n in known if n not in KEY_DEPENDENCIES)
         dependencies = [
             DependencyView(
@@ -253,6 +276,7 @@ class GetDashboard:
         return Dashboard(
             generated_at=now,
             dependencies=dependencies,
+            probes=probes,
             stages=stage_counts(cases, today=now.replace(hour=0, minute=0, second=0, microsecond=0)),
             service_levels=service_levels(cases, since=now - WINDOW),
             incidents=sorted(incidents.values(), key=lambda i: i.first_seen or now, reverse=True)[:10],

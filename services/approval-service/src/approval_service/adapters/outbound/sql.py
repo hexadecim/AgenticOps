@@ -46,6 +46,8 @@ class ApprovalTables:
             Column("outcome_detail", Text, nullable=True),
             Column("reminders", Integer, nullable=False, default=0),
             Column("reminded_at", DateTime(timezone=True), nullable=True),
+            Column("health", String(12), nullable=True),
+            Column("health_detail", Text, nullable=True),
         )
         self.outbox = outbox_table(self.metadata)
         self.inbox = inbox_table(self.metadata)
@@ -77,6 +79,8 @@ def _row(a: Approval) -> dict[str, Any]:
         "outcome_detail": a.outcome_detail,
         "reminders": a.reminders,
         "reminded_at": a.reminded_at,
+        "health": a.health,
+        "health_detail": a.health_detail,
     }
 
 
@@ -103,6 +107,8 @@ def _approval(r: Any) -> Approval:
         outcome_detail=r.outcome_detail,
         reminders=r.reminders or 0,
         reminded_at=_aware(r.reminded_at),
+        health=r.health,
+        health_detail=r.health_detail,
     )
 
 
@@ -128,6 +134,17 @@ class SqlApprovalRepository:
             query = query.where(self._t.c.gate == gate.value)
         rows = await self._s.execute(query.order_by(self._t.c.requested_at).limit(limit))
         return [_approval(r) for r in rows]
+
+    async def latest_for_run(self, run_id: str, gate: Gate) -> Approval | None:
+        t = self._t
+        row = (
+            await self._s.execute(
+                select(t)
+                .where(t.c.run_id == run_id, t.c.gate == gate.value)
+                .order_by(t.c.requested_at.desc())
+            )
+        ).first()
+        return _approval(row) if row else None
 
 
 class _Recorder:

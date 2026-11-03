@@ -13,6 +13,7 @@ from pathlib import Path
 import structlog
 import yaml
 
+from ...domain.errors import LogsUnavailableError
 from ...domain.masking import mask
 from ...domain.model import LogFinding, Runbook, RunbookStep
 
@@ -104,6 +105,10 @@ class FileLogs:
 
     @staticmethod
     def _search(folder: str, services: list[str], limit: int) -> list[LogFinding]:
+        root = Path(folder)
+        if not root.is_dir() or not any(root.glob("*.log")):
+            # Silent "no findings" here once hid an emptied bind mount; say it instead.
+            raise LogsUnavailableError(f"No log files in {folder}")
         out = []
         for service in services:
             file = Path(folder) / f"{Path(service).name}.log"  # never leave the folder

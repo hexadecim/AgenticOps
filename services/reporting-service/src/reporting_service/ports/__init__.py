@@ -6,7 +6,7 @@ from datetime import datetime
 from types import TracebackType
 from typing import Protocol, Self
 
-from ..domain.model import Case, Dependency, TimelineEntry
+from ..domain.model import Case, Dependency, Probe, TimelineEntry
 
 
 class CaseStore(Protocol):
@@ -43,11 +43,18 @@ class DependencyStore(Protocol):
     async def all(self) -> list[Dependency]: ...
 
 
+class ProbeStore(Protocol):
+    async def get(self, name: str, region: str) -> Probe | None: ...
+    async def save(self, probe: Probe) -> None: ...
+    async def all(self) -> list[Probe]: ...
+
+
 class UnitOfWork(Protocol):
     cases: CaseStore
     emails: EmailStore
     timeline: TimelineStore
     dependencies: DependencyStore
+    probes: ProbeStore
 
     async def __aenter__(self) -> Self: ...
     async def __aexit__(

@@ -154,6 +154,7 @@ def candidates(
     region: str | None,
     site: str | None,
     failing: list[str],
+    ranked_by_logs: bool = True,
 ) -> list[Candidate]:
     out: list[Candidate] = []
     if failing:  # a probe fails: only runbooks for the failing services are relevant, not every close match
@@ -174,7 +175,10 @@ def candidates(
             for p in spec.params:
                 options = choices[p.kind]
                 if p.kind == "service":
-                    pick = next((s for s in failing if s in options), options[0] if options else None)
+                    # `failing` is ranked by log noise; without any, the runbook's own order (it names the
+                    # service its steps act on first) beats the probe's arbitrary order.
+                    ranked = failing if ranked_by_logs else [s for s in options if s in failing]
+                    pick = next((s for s in ranked if s in options), options[0] if options else None)
                 elif p.kind == "region":
                     pick = region if region in options else (options[0] if len(options) == 1 else None)
                 else:

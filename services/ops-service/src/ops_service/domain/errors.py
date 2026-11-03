@@ -31,6 +31,12 @@ class EvidenceUnavailableError(OpsError):
     code = "evidence_unavailable"
 
 
+class LogsUnavailableError(OpsError):
+    """The log folder is missing or holds no log files: diagnostics go on without logs and say so."""
+
+    code = "logs_unavailable"
+
+
 class ExecutorUnavailableError(OpsError):
     """The executor could not be reached; the job is retried later."""
 

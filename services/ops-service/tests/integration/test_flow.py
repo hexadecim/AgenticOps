@@ -156,6 +156,18 @@ async def test_diagnose_finds_failing_probe_masked_logs_runbook_and_allow_listed
     assert len(await world.events("probe.status")) == 5
     await world.c.check_health("eu-west-1")
     assert len(await world.events("probe.status")) == 5
+    await world.c.check_health("eu-west-1", announce=True)  # start-up sweep: current state of every probe
+    assert len(await world.events("probe.status")) == 10
+
+
+async def test_unreadable_log_folder_is_a_note_not_silence(world: World, tmp_path: Path) -> None:
+    # Seen live: an emptied bind mount made every log search return nothing, with no sign of it.
+    world.settings.current = OpsSettings(runbook_folder=str(OPS / "runbooks"), log_folder=str(tmp_path))
+    result = (await world.c.diagnose(DiagnoseQuery(PROBLEM, site="SITE-A014"))).json()
+    assert result["logs"] == []
+    assert any(n.startswith("Logs unavailable") for n in result["notes"])
+    # The service still follows the runbook (upload-worker), not the probe's first service.
+    assert result["candidates"][0]["params"]["service"] == "upload-worker"
 
 
 async def test_runbook_search_falls_back_to_keywords_when_embeddings_are_down(world: World) -> None:

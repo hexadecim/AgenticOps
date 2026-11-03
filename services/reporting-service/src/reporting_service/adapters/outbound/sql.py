@@ -12,6 +12,7 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Integer,
     MetaData,
     String,
     Table,
@@ -25,8 +26,8 @@ from sqlalchemy import (
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ...domain.model import Case, Dependency, TimelineEntry
-from ...ports import CaseStore, DependencyStore, EmailStore, TimelineStore
+from ...domain.model import Case, Dependency, Probe, TimelineEntry
+from ...ports import CaseStore, DependencyStore, EmailStore, ProbeStore, TimelineStore
 
 _OPEN = (
     "queued",
@@ -95,6 +96,16 @@ class ReportingTables:
             self.metadata,
             Column("name", String(60), primary_key=True),
             Column("states", JSON, nullable=False),
+            Column("since", DateTime(timezone=True), nullable=True),
+        )
+        self.probes = Table(
+            "probes",
+            self.metadata,
+            Column("name", String(80), primary_key=True),
+            Column("region", String(40), primary_key=True),
+            Column("ok", Boolean, nullable=False),
+            Column("detail", Text, nullable=False),
+            Column("latency_ms", Integer, nullable=True),
             Column("since", DateTime(timezone=True), nullable=True),
         )
         self.inbox = inbox_table(self.metadata)
@@ -262,11 +273,44 @@ class SqlDependencyStore:
         ]
 
 
+class SqlProbeStore:
+    def __init__(self, session: AsyncSession, tables: ReportingTables) -> None:
+        self._s, self._t = session, tables.probes
+
+    @staticmethod
+    def _probe(r: Any) -> Probe:
+        return Probe(r.name, r.region, r.ok, r.detail, r.latency_ms, _aware(r.since))
+
+    async def get(self, name: str, region: str) -> Probe | None:
+        t = self._t
+        row = (await self._s.execute(select(t).where(t.c.name == name, t.c.region == region))).first()
+        return self._probe(row) if row else None
+
+    async def save(self, probe: Probe) -> None:
+        t = self._t
+        values = {
+            "ok": probe.ok,
+            "detail": probe.detail,
+            "latency_ms": probe.latency_ms,
+            "since": probe.since,
+        }
+        result = await self._s.execute(
+            update(t).where(t.c.name == probe.name, t.c.region == probe.region).values(**values)
+        )
+        if result.rowcount == 0:  # type: ignore[attr-defined]
+            await self._s.execute(insert(t).values(name=probe.name, region=probe.region, **values))
+
+    async def all(self) -> list[Probe]:
+        t = self._t
+        return [self._probe(r) for r in await self._s.execute(select(t).order_by(t.c.region, t.c.name))]
+
+
 class SqlUnitOfWork:
     cases: CaseStore
     emails: EmailStore
     timeline: TimelineStore
     dependencies: DependencyStore
+    probes: ProbeStore
 
     def __init__(
         self,
@@ -287,6 +331,7 @@ class SqlUnitOfWork:
             SqlTimelineStore(self._session, t),
             SqlDependencyStore(self._session, t),
         )
+        self.probes = SqlProbeStore(self._session, t)
         return self
 
     async def __aexit__(
