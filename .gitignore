@@ -17,5 +17,7 @@ frontend/dist/
 .DS_Store
 
 #Claude files
-CLAUDE.MD
+
+*claude*
+*CLAUDE*
 *Claude/*
