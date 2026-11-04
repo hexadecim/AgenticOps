@@ -12,7 +12,7 @@ import contextlib
 
 import structlog
 
-from ...application import ActiveMailbox, PollMailbox, PurgeExpiredEmails, SendDueMessages
+from ...application import ActiveMailbox, PollMailbox, PurgeExpiredEmails, SendDsrMessages, SendDueMessages
 
 log = structlog.get_logger(__name__)
 
@@ -24,12 +24,14 @@ class Scheduler:
         purge: PurgeExpiredEmails,
         active: ActiveMailbox,
         send: SendDueMessages,
+        send_dsr: SendDsrMessages | None = None,
         *,
         idle_interval: float = 30.0,
         retention_interval: float = 3600.0,
         send_interval: float = 15.0,
     ) -> None:
         self._poll, self._purge, self._active, self._send = poll, purge, active, send
+        self._send_dsr = send_dsr
         self._idle, self._retention, self._send_interval = idle_interval, retention_interval, send_interval
         self._wake = asyncio.Event()
         self._wake_sender = asyncio.Event()
@@ -47,6 +49,8 @@ class Scheduler:
         recovered = await self._send.recover()
         if recovered:
             log.warning("sends_interrupted", count=recovered)
+        if self._send_dsr and (recovered := await self._send_dsr.recover()):
+            log.warning("dsr_sends_interrupted", count=recovered)
         self._tasks = [
             asyncio.create_task(self._send_loop(), name="mail-sender"),
             asyncio.create_task(self._poll_loop(), name="mail-poller"),
@@ -77,6 +81,8 @@ class Scheduler:
             try:
                 while await self._send():  # keep going while there is due work
                     pass
+                if self._send_dsr:
+                    await self._send_dsr()
             except Exception:
                 log.exception("mail_send_crashed")
             with contextlib.suppress(TimeoutError):

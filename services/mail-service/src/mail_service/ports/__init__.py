@@ -10,6 +10,7 @@ from typing import Any, Protocol, Self
 
 from opspilot_common.events.envelope import EventPayload
 
+from ..domain.dsr_message import DsrMessage
 from ..domain.mail import FetchBatch, MailboxConfig, OutgoingMail, StoredEmail
 from ..domain.outgoing import OutgoingMessage
 from ..domain.status import PollState
@@ -97,6 +98,20 @@ class OutgoingRepository(Protocol):
     async def delete_created_before(self, cutoff: datetime) -> int: ...
 
 
+class DsrMessageRepository(Protocol):
+    async def exists(self, message_id: str) -> bool: ...
+    async def add(self, message: DsrMessage) -> None: ...
+    async def save(self, message: DsrMessage) -> None: ...
+    async def due(self, now: datetime, limit: int) -> list[DsrMessage]: ...
+    async def interrupted(self) -> list[DsrMessage]: ...
+
+
+class DsrContentSource(Protocol):
+    async def outbound(self, dsr_id: str, kind: str) -> OutgoingMail:
+        """Raise DetokeniseUnavailableError to try later, DetokeniseRefusedError when it must not go out."""
+        ...
+
+
 class PollStateRepository(Protocol):
     async def get(self) -> PollState: ...
     async def save(self, state: PollState) -> None: ...
@@ -107,6 +122,7 @@ class EventRecorder(Protocol):
 
 
 class UnitOfWork(Protocol):
+    dsr_messages: DsrMessageRepository
     emails: EmailRepository
     poll_state: PollStateRepository
     outgoing: OutgoingRepository

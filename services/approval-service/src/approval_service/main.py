@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from opspilot_common.events import EventRuntime, Inbox
 from opspilot_common.logging import configure_logging
+from opspilot_common.subjects_http import ERASURE_BINDINGS, erasure_handler, subject_router
 from opspilot_common.web import CorrelationIdMiddleware, health_routes
 
 from .adapters.inbound.events import BINDINGS, on_event
@@ -40,6 +41,13 @@ def create_app(
                 container.record_message,
             )
             runtime.add_consumer("events", BINDINGS, inbox.guard(container.sessions, handler))
+            runtime.add_consumer(
+                "subjects",
+                ERASURE_BINDINGS,
+                Inbox(container.tables.inbox, f"{SERVICE}.subjects").guard(
+                    container.sessions, erasure_handler(container.subject_store)
+                ),
+            )
             await runtime.start()
         reminders = ReminderLoop(container.send_reminders) if with_reminders else None
         if reminders:
@@ -57,5 +65,6 @@ def create_app(
     app.add_middleware(CorrelationIdMiddleware)
     install_error_handlers(app)
     app.include_router(build_router(container))
+    app.include_router(subject_router(container.subject_store, container.require_privacy))
     app.include_router(health_routes(container.registry))
     return app

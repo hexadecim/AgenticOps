@@ -152,6 +152,14 @@ services:
       DATABASE_URL: postgresql+asyncpg://privacy_svc:privacy_dev_password@postgres:5432/opspilot
       FERNET_KEY: ${FERNET_KEY:?set FERNET_KEY in .env}
       MAIL_URL: http://mail-service:8003
+      ORCHESTRATOR_URL: http://agent-orchestrator:8008
+      APPROVAL_URL: http://approval-service:8006
+      JIRA_URL: http://jira-connector:8007
+      REPORTING_URL: http://reporting-service:8009
+      AUDIT_URL: http://audit-service:8005
+      # Deletes real identities for good, so it is switched on deliberately. Other stores: see the Privacy screen.
+      VAULT_PURGE_ENABLED: ${VAULT_PURGE_ENABLED:-false}
+      VAULT_RETENTION_DAYS: ${VAULT_RETENTION_DAYS:-30}
     volumes: ["./resilience.yaml:/etc/opspilot/resilience.yaml:ro"]
     depends_on:
       postgres: { condition: service_healthy }

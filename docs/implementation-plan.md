@@ -442,12 +442,34 @@ and the SPA in headless Chrome. **Jira was a local stub**, and the dev database 
 resolution said "the service restarts in about a minute" after the fact; the ETA check missed "in about …"; sent-back
 drafts read "all checks pass" in the Decided list.
 
-## Milestone 8 — Privacy / GDPR ⬜
+## Milestone 8 — Privacy / GDPR 🟡 built and run live on a throwaway stack; not on the real stack, nothing committed
 
-- [ ] DSR requests (Art. 15–21) with due dates; where a person's data is held across stores
-- [ ] Export (JSON to verified address) and erasure across stores (audit keeps token only)
-- [ ] Retention schedule and jobs; privacy notice / imprint / accessibility pages
-- [ ] UI: Privacy and data requests screen
+Design: [ADR-0008](adr/0008-data-requests-and-retention.md). Live run 2026-11-04 on a **throwaway compose project**
+(`opspilot-m8`, own empty database, GreenMail, since removed): real deepseek-r1:8b, privacy-service, RabbitMQ, SMTP/IMAP and
+the SPA in headless Chrome. **Jira was a local stub**; the dev database and Gmail were not used. All people were synthetic.
+
+- [x] DSR requests (Art. 15–21) with due dates (one calendar month); compliance lead only — live: 5 logged, analyst and
+      support agent refused; the address is encrypted and never returned or put in an event
+- [x] Where a person's data is held across stores — live: 8 stores with counts; a stopped store shows "Cannot be asked now"
+- [x] Export (JSON to the verified address) — live: real email with `dsr-0001.json`; the writer's own email in full, other
+      people left out; refused until verified. Address on file used, not as typed (bug found live, fixed)
+- [x] Erasure across stores (audit keeps token only) — live, twice: tokens dead at once, 5 stores acknowledged, then one
+      confirmation email; other people's cases untouched; new email from the same person gets new tokens; an erased email is not
+      fetched again after a read-position reset; refused while a store is down or a run is working
+- [x] Retention schedule and vault job — live on Postgres: a person unused for 40 days kept while a run is open, purged
+      once it closed, with an audit entry. **The job is off by default** (`VAULT_PURGE_ENABLED`); raw email's 30 days already ran
+- [ ] Retention periods for tokenised emails, checkpoints and the audit log: no job until agreed (issue #35)
+- [x] Privacy notice, imprint, accessibility pages — public at `/legal/*`, seen signed out. Bracketed legal details are
+      for you to fill in, and the wording needs your DPO's review
+- [x] UI: Privacy and data requests screen — walked in headless Chrome as a compliance lead, no browser errors. Not yet
+      seen by a person; session minted, so sign-in was not part of this run
+- [ ] Same on the real stack, with real Jira and the mailbox on GreenMail
+- Tests only: send failure and "Send again", interrupted send, Graph/Gmail attachments (they share `build_mime`), a delayed
+  store's DLQ path. Not built: rectification, restriction and objection are tracked and closed by hand (issue #34).
+
+**Found by the live run and fixed:** after erasure the screen said the audit log held nothing, though it keeps those entries;
+the export went to the address as typed; a store being down returned 503, which would have tripped the gateway's breaker on a healthy
+privacy-service (now 409, and mail-service retries later).
 
 ## Milestone 9 — Hardening ⬜
 
@@ -495,4 +517,9 @@ drafts read "all checks pass" in the Decided list.
 | 29 | deepseek-r1:8b fills `missing_details` with nothing (0 of 4 live reports checked), and sometimes leaves `category` empty | Follow-up questions practically never fire; customers get an acknowledgement instead; "Intake:  · …" in the queue | Improve the Intake prompt or derive missing details in code (no site, no error, …) |
 | 30 | deepseek classed a short "failing for us as well" email as not a support request (1 live case) | That reporter's run was ignored: no ticket link, no reply | Existing risk from #18; consider a second look at mail on a thread or naming a known site |
 | 31 | The model followed a send-back note only partly (1 of 3 live cases) | The approver must re-read each redraft; they can edit it | Accept: T3 exists for this |
+| 32 | OpsPilot only reads the mailbox, so erasure leaves the originals there (for example in Gmail) | An erased person's emails remain in the mailbox | Screen and audit say so; delete by hand, or add a provider delete later |
+| 33 | Identity verification is a statement by the compliance lead, not a challenge email | Relies on the person doing it properly; a spoofed erasure request could destroy data | Recorded in the audit log. Consider a confirmation-link flow |
+| 34 | Rectification, restriction and objection are tracked but carried out by hand | A restriction does not stop the agents from processing that person's new mail | Screen says so; automate when real requests need it |
+| 35 | Wireframe says audit log "90 days, then per client policy", but rule 8 forbids deleting it; tokenised emails and checkpoints have no agreed period | They are kept indefinitely | Client decision; schedule on screen says "Kept" |
+| 36 | Backups are outside erasure and retention | Erased data lives on in any backup until it expires | Define a backup policy before production |
 | 23 | Reporting has no event store | Read models built before a consumer existed need an outbox replay; a *new* read model inside an existing consumer cannot be backfilled that way (its inbox already holds the event ids) — probes avoid this by ops-service announcing their state at start-up | Add an event archive or rebuild command in milestone 9 |

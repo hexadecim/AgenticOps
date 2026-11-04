@@ -9,7 +9,7 @@ import structlog
 from opspilot_common.events.catalogue import PrivacyRecorded
 
 from ..domain.entities import EntityKind, Identity, Span, clean_people, identity_spans, merge, normalise
-from ..domain.errors import LeakDetectedError, NotAllowedError
+from ..domain.errors import EmailNotFoundError, LeakDetectedError, NotAllowedError
 from ..domain.records import PSEUDONYMISE_SERVICES, PseudonymisationRecord, TokenisedAddress, TokenisedEmail
 from ..domain.text import guess_language, strip_quoted, strip_signature
 from ..domain.tokens import bracket
@@ -80,6 +80,10 @@ class PseudonymiseEmail:
         async with self._uow() as uow:
             if existing := await uow.records.by_email(email_id):
                 return existing  # idempotent: same email, same tokens, no second audit entry
+            if await uow.erased.contains(email_id):
+                raise EmailNotFoundError(
+                    email_id
+                )  # its writer was erased; a queued run must not bring it back
 
         raw = await self._source.get(email_id)
         body, quoted = strip_quoted(raw.body)

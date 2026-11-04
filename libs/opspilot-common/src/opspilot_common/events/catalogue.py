@@ -30,6 +30,10 @@ class EventType(StrEnum):
     PROBE_STATUS = "probe.status"
     ACTION_EXECUTED = "action.executed"
     PRIVACY_RECORDED = "privacy.recorded"
+    SUBJECT_ERASURE_REQUESTED = "subject.erasure_requested"
+    SUBJECT_STORE_ERASED = "subject.store_erased"
+    DSR_SEND_REQUESTED = "dsr.send_requested"
+    DSR_MESSAGE_RESULT = "dsr.message_result"
     SETTINGS_CHANGED = "settings.changed"
     USER_ACTIVITY = "user.activity"
     BREAKER_STATE_CHANGED = "breaker.state_changed"
@@ -229,6 +233,45 @@ class PrivacyRecorded(EventPayload):
     actor_role: str | None = Field(default=None, description="Role of the person who acted, never a name")
 
 
+class SubjectErasureRequested(EventPayload):
+    """A compliance lead erased a person (Art. 17). Tokens and ids only; every store acknowledges."""
+
+    EVENT_TYPE = EventType.SUBJECT_ERASURE_REQUESTED
+    dsr_id: str
+    tokens: list[str]
+    own_email_ids: list[str] = Field(description="Emails this person wrote")
+    run_ids: list[str] = Field(description="Agent runs on those emails")
+    decided_by_role: str
+
+
+class SubjectStoreErased(EventPayload):
+    EVENT_TYPE = EventType.SUBJECT_STORE_ERASED
+    dsr_id: str
+    store: str  # mail | orchestrator | approval | jira | reporting
+    count: int
+    detail: str | None = None
+
+
+class DsrSendRequested(EventPayload):
+    """A compliance lead's decision to answer a data request by email. mail-service fetches the content from
+    privacy-service when it sends; none of it travels in events."""
+
+    EVENT_TYPE = EventType.DSR_SEND_REQUESTED
+    dsr_id: str
+    kind: str  # export | erasure_confirmation
+    attempt: int = 1
+    decided_by_role: str
+
+
+class DsrMessageResult(EventPayload):
+    EVENT_TYPE = EventType.DSR_MESSAGE_RESULT
+    dsr_id: str
+    kind: str
+    attempt: int = 1
+    sent: bool
+    detail: str | None = None
+
+
 class SettingsChanged(EventPayload):
     EVENT_TYPE = EventType.SETTINGS_CHANGED
     section: str  # mailbox | jira | llm | ops
@@ -280,6 +323,10 @@ PAYLOADS: dict[str, type[EventPayload]] = {
         ProbeStatus,
         ActionExecuted,
         PrivacyRecorded,
+        SubjectErasureRequested,
+        SubjectStoreErased,
+        DsrSendRequested,
+        DsrMessageResult,
         SettingsChanged,
         UserActivity,
         BreakerStateChanged,

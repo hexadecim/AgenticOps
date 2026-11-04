@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from opspilot_common.events import EventRuntime, Inbox
 from opspilot_common.logging import configure_logging
+from opspilot_common.subjects_http import ERASURE_BINDINGS, erasure_handler, subject_router
 from opspilot_common.web import CorrelationIdMiddleware, health_routes
 
 from .adapters.inbound.events import on_any_event
@@ -27,9 +28,17 @@ def create_app(container: Container | None = None, *, with_events: bool = True) 
         runtime = None
         if with_events:
             runtime = EventRuntime(SERVICE, container.settings.rabbitmq_url, container.registry)
+            runtime.add_outbox(container.sessions, container.tables.outbox)
             inbox = Inbox(container.tables.inbox, f"{SERVICE}.all")
             handler = on_any_event(container.sessions, container.tables)
             runtime.add_consumer("all", ["#"], inbox.guard(container.sessions, handler))
+            runtime.add_consumer(
+                "subjects",
+                ERASURE_BINDINGS,
+                Inbox(container.tables.inbox, f"{SERVICE}.subjects").guard(
+                    container.sessions, erasure_handler(container.subject_store)
+                ),
+            )
             await runtime.start()
         yield
         if runtime:
@@ -41,5 +50,6 @@ def create_app(container: Container | None = None, *, with_events: bool = True) 
     app = FastAPI(title="OpsPilot reporting-service", version="0.1.0", lifespan=lifespan)
     app.add_middleware(CorrelationIdMiddleware)
     app.include_router(build_router(container))
+    app.include_router(subject_router(container.subject_store, container.require_privacy))
     app.include_router(health_routes(container.registry))
     return app

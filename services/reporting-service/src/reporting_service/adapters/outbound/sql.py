@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from types import TracebackType
 from typing import Any, Self
 
-from opspilot_common.events import inbox_table
+from opspilot_common.events import inbox_table, outbox_table
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -75,6 +75,7 @@ class ReportingTables:
             Column("verdict", String(20), nullable=True),
             Column("verdict_at", DateTime(timezone=True), nullable=True),
         )
+        self.outbox = outbox_table(self.metadata)
         self.emails = Table(
             "emails",
             self.metadata,

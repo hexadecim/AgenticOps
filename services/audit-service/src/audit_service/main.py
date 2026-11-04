@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from opspilot_common.events import EventRuntime, Inbox
 from opspilot_common.logging import configure_logging
+from opspilot_common.subjects_http import subject_router
 from opspilot_common.web import CorrelationIdMiddleware, health_routes
 
 from .adapters.inbound.events import on_any_event
@@ -42,5 +43,6 @@ def create_app(container: Container | None = None, *, with_events: bool = True) 
     app.add_middleware(CorrelationIdMiddleware)
     install_error_handlers(app)
     app.include_router(build_router(container))
+    app.include_router(subject_router(container.subject_reader, container.require_privacy))
     app.include_router(health_routes(container.registry))
     return app

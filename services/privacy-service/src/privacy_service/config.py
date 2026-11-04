@@ -12,6 +12,14 @@ class Settings(BaseSettings):
     rabbitmq_url: str = "amqp://opspilot:opspilot@localhost:5672/"
     redis_url: str = "redis://localhost:6379/0"
     mail_url: str = "http://localhost:8003"
+    orchestrator_url: str = "http://localhost:8008"
+    approval_url: str = "http://localhost:8006"
+    jira_url: str = "http://localhost:8007"
+    reporting_url: str = "http://localhost:8009"
+    audit_url: str = "http://localhost:8005"
+    raw_email_days: int = 30  # shown on the schedule; mail-service's RETENTION_DAYS does the deleting
+    vault_retention_days: int = 30
+    vault_purge_enabled: bool = False  # the job deletes real identities for good: switched on deliberately
     jwt_secret: str = Field(min_length=32)
     fernet_key: str = Field(min_length=44)
     resilience_config: str | None = None

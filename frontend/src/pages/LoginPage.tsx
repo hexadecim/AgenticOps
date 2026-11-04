@@ -1,6 +1,6 @@
 import QRCode from "qrcode";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { authApi } from "../api/auth";
 import { ApiError } from "../api/client";
 import type { SignInChallenge } from "../api/types";
@@ -252,13 +252,13 @@ export function LoginPage() {
         </div>
 
         <footer className="login-footer">
-          <a href="#privacy">Privacy notice</a><a href="#imprint">Imprint</a><a href="#a11y">Accessibility statement</a><span>Hosted in the EU</span>
+          <Link to="/legal/privacy">Privacy notice</Link><Link to="/legal/imprint">Imprint</Link><Link to="/legal/accessibility">Accessibility statement</Link><span>Hosted in the EU</span>
         </footer>
 
         {showCookie && (
           <div role="region" aria-label="Cookie notice" className="cookie op-enter op-d4">
             <Icon name="shield" size={22} />
-            <p>We only use essential cookies to keep you signed in and remember your language and theme. No tracking, analytics or advertising cookies. <a href="#privacy">Read the privacy notice</a></p>
+            <p>We only use essential cookies to keep you signed in and remember your language and theme. No tracking, analytics or advertising cookies. <Link to="/legal/privacy">Read the privacy notice</Link></p>
             <button type="button" className="btn btn-sm op-press" onClick={dismissCookie}>Understood</button>
           </div>
         )}

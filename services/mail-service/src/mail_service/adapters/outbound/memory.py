@@ -9,6 +9,7 @@ from typing import Self
 
 from opspilot_common.events.envelope import EventPayload
 
+from ...domain.dsr_message import DsrMessage
 from ...domain.mail import StoredEmail
 from ...domain.outgoing import OutgoingMessage, OutgoingStatus
 from ...domain.status import PollState
@@ -98,11 +99,33 @@ class InMemoryOutgoingRepository:
         return len(old)
 
 
+class InMemoryDsrMessageRepository:
+    def __init__(self) -> None:
+        self.rows: dict[str, DsrMessage] = {}
+
+    async def exists(self, message_id: str) -> bool:
+        return message_id in self.rows
+
+    async def add(self, message: DsrMessage) -> None:
+        self.rows[message.id] = copy.copy(message)
+
+    async def save(self, message: DsrMessage) -> None:
+        self.rows[message.id] = copy.copy(message)
+
+    async def due(self, now: datetime, limit: int) -> list[DsrMessage]:
+        due = [r for r in self.rows.values() if r.status is OutgoingStatus.PENDING and r.next_try_at <= now]
+        return [copy.copy(r) for r in due[:limit]]
+
+    async def interrupted(self) -> list[DsrMessage]:
+        return [copy.copy(r) for r in self.rows.values() if r.status is OutgoingStatus.SENDING]
+
+
 class InMemoryStore:
     def __init__(self) -> None:
         self.emails = InMemoryEmailRepository()
         self.poll_state = InMemoryPollStateRepository()
         self.outgoing = InMemoryOutgoingRepository()
+        self.dsr_messages = InMemoryDsrMessageRepository()
         self.published: list[tuple[EventPayload, str | None]] = []
 
 
@@ -116,6 +139,7 @@ class InMemoryUnitOfWork:
         self.emails = copy.deepcopy(self._store.emails)
         self.poll_state = copy.deepcopy(self._store.poll_state)
         self.outgoing = copy.deepcopy(self._store.outgoing)
+        self.dsr_messages = copy.deepcopy(self._store.dsr_messages)
         self._pending: list[tuple[EventPayload, str | None]] = []
         self.events = self
         return self
@@ -129,6 +153,7 @@ class InMemoryUnitOfWork:
         self._pending.clear()
 
     async def commit(self) -> None:
+        self._store.dsr_messages = copy.deepcopy(self.dsr_messages)
         self._store.emails, self._store.poll_state, self._store.outgoing = (
             copy.deepcopy(self.emails),
             copy.deepcopy(self.poll_state),

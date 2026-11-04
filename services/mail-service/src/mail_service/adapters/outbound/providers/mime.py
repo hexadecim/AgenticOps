@@ -141,4 +141,7 @@ def build_mime(mail: OutgoingMail, sender: str) -> tuple[bytes, str]:
     if refs:
         msg["References"] = " ".join(f"<{r}>" for r in dict.fromkeys(refs))
     msg.set_content(mail.body_text)
+    for item in mail.attachments:
+        main, _, sub = item.content_type.partition("/")
+        msg.add_attachment(item.content.encode(), maintype=main, subtype=sub, filename=item.filename)
     return msg.as_bytes(), normalise_message_id(message_id) or message_id
