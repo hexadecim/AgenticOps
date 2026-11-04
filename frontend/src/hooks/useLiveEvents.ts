@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 const TYPES = [
   "approval.requested", "approval.decided", "run.status_changed",
   "jira.issue.created", "jira.issue.linked", "jira.issue.failed", "breaker.state_changed",
-  "action.executed", "approval.reminder", "probe.status",
+  "action.executed", "approval.reminder", "probe.status", "message.sent", "message.failed",
 ];
 
 /** Live updates: the gateway relays event types and ids only; we refetch what the page shows. */

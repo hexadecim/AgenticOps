@@ -10,7 +10,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from .envelope import EventEnvelope, EventPayload
 
@@ -19,6 +19,7 @@ class EventType(StrEnum):
     EMAIL_RECEIVED = "email.received"
     MESSAGE_SEND_REQUESTED = "message.send.requested"
     MESSAGE_SENT = "message.sent"
+    MESSAGE_FAILED = "message.failed"
     RUN_STATUS_CHANGED = "run.status_changed"
     APPROVAL_REQUESTED = "approval.requested"
     APPROVAL_DECIDED = "approval.decided"
@@ -55,6 +56,14 @@ class EmailReceived(EventPayload):
     received_at: datetime
 
 
+class MessageRecipient(BaseModel):
+    """One reporter of a message. Each gets their own email, as a reply to the email they sent."""
+
+    email_token: str
+    name_token: str | None = None
+    email_id: str
+
+
 class MessageSendRequested(EventPayload):
     EVENT_TYPE = EventType.MESSAGE_SEND_REQUESTED
     message_id: str
@@ -65,6 +74,8 @@ class MessageSendRequested(EventPayload):
     subject: str
     body: str = Field(description="Tokenised body; mail-service detokenises at send time")
     jira_key: str | None = None
+    recipients: list[MessageRecipient] = Field(default_factory=list)
+    kind: str | None = Field(default=None, description="acknowledgement | follow_up | resolution")
 
 
 class MessageSent(EventPayload):
@@ -73,6 +84,25 @@ class MessageSent(EventPayload):
     thread_id: str
     recipient_tokens: list[str]
     jira_key: str | None = None
+    run_id: str | None = None
+    approval_id: str | None = None
+    kind: str | None = None
+    failed_tokens: list[str] = Field(default_factory=list, description="Recipients it could not reach")
+    detail: str | None = None
+
+
+class MessageFailed(EventPayload):
+    """An approved message reached none of its recipients; a person has to act."""
+
+    EVENT_TYPE = EventType.MESSAGE_FAILED
+    message_id: str
+    run_id: str
+    thread_id: str
+    approval_id: str
+    failed_tokens: list[str]
+    reason: str
+    jira_key: str | None = None
+    kind: str | None = None
 
 
 class RunStatusChanged(EventPayload):
@@ -239,6 +269,7 @@ PAYLOADS: dict[str, type[EventPayload]] = {
         EmailReceived,
         MessageSendRequested,
         MessageSent,
+        MessageFailed,
         RunStatusChanged,
         ApprovalRequested,
         ApprovalDecided,

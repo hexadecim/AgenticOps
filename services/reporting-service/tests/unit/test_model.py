@@ -30,15 +30,18 @@ def test_stages_count_open_work_diagnostics_and_resolved_today() -> None:
         case(7, "waiting_ops"),
         case(8, "fix_approved"),
         case(9, "fix_failed"),
-        case(10, "resolved", updated_at=T0),
-        case(11, "resolved", updated_at=T0 - timedelta(days=1)),
+        case(10, "resolved", verdict="resolved", verdict_at=T0),
+        case(11, "resolved", verdict="resolved", verdict_at=T0 - timedelta(days=1)),
+        # Fixed today; its customer message waits at T3: resolved *and* waiting for approval.
+        case(12, "waiting_approval", verdict="resolved", verdict_at=T0),
+        case(13, "waiting_customer"),
     ]
     stages = {s.stage: s for s in stage_counts(cases, today=T0.replace(hour=0))}
     assert stages[Stage.INTAKE].count == 2 and stages[Stage.INTAKE].note == "1 paused for the AI"
-    assert stages[Stage.APPROVAL].count == 1 and stages[Stage.ENGINEERING].count == 2
+    assert stages[Stage.APPROVAL].count == 2 and stages[Stage.ENGINEERING].count == 2
     assert stages[Stage.DIAGNOSTICS].count == 2 and stages[Stage.DIAGNOSTICS].note == "1 waiting for evidence"
-    assert stages[Stage.CLOSED].count == 1  # resolved today only
-    assert stages[Stage.CUSTOMER].count is None and "milestone 7" in stages[Stage.CUSTOMER].note
+    assert stages[Stage.CLOSED].count == 2  # resolved today only
+    assert stages[Stage.CUSTOMER].count == 1
 
 
 def test_service_levels_from_timings() -> None:

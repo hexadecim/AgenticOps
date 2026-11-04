@@ -34,8 +34,13 @@ _STAGE_OF = {
     "fix_approved": Stage.DIAGNOSTICS,
     "fix_rejected": Stage.ENGINEERING,  # still open in Jira; a person takes it from here
     "fix_failed": Stage.ENGINEERING,
+    "message_approved": Stage.ENGINEERING,  # being sent; the case's verdict still says how it ended
+    "waiting_customer": Stage.CUSTOMER,
+    "customer_replied": Stage.ENGINEERING,
 }
 RESOLVED = "resolved"  # fix ran and the health re-check passed
+WAITING_CUSTOMER, CUSTOMER_REPLIED = "waiting_customer", "customer_replied"
+VERDICTS = frozenset({RESOLVED, "fix_failed"})  # what the health re-check said
 
 
 @dataclass(slots=True)
@@ -60,6 +65,9 @@ class Case:
     site: str | None = None
     paused: bool = False  # waited for the local model at least once
     updated_at: datetime | None = None
+    # The health re-check's result. Kept apart from `status`: the run goes on to the customer message (T3).
+    verdict: str | None = None
+    verdict_at: datetime | None = None
 
     @property
     def stage(self) -> Stage:
@@ -85,7 +93,7 @@ def stage_counts(cases: list[Case], *, today: datetime | None = None) -> list[St
         counts[case.stage] += 1
         paused += case.status == "waiting_llm"
         no_evidence += case.status == "waiting_ops"
-        resolved += bool(case.status == RESOLVED and today and case.updated_at and case.updated_at >= today)
+        resolved += bool(case.verdict == RESOLVED and today and case.verdict_at and case.verdict_at >= today)
     return [
         StageCount(
             Stage.INTAKE, "Intake", counts[Stage.INTAKE], f"{paused} paused for the AI" if paused else ""
@@ -97,7 +105,7 @@ def stage_counts(cases: list[Case], *, today: datetime | None = None) -> list[St
             f"{no_evidence} waiting for evidence" if no_evidence else "",
         ),
         StageCount(Stage.APPROVAL, "Waiting for approval", counts[Stage.APPROVAL]),
-        StageCount(Stage.CUSTOMER, "Waiting on customer", None, "from milestone 7"),
+        StageCount(Stage.CUSTOMER, "Waiting on customer", counts[Stage.CUSTOMER], "asked for more details"),
         StageCount(Stage.ENGINEERING, "With engineering", counts[Stage.ENGINEERING], "open in Jira"),
         StageCount(Stage.CLOSED, "Resolved today", resolved, "by an approved fix (Jira sync later)"),
     ]

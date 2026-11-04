@@ -18,6 +18,9 @@ class ApprovalHttpClient(ServiceHttpClient):
         # Not retried automatically; a repeat is harmless anyway (approval-service treats it as idempotent).
         return await self._obj("POST", f"/v1/approvals/{approval_id}/decision", token=token, json=body)
 
+    async def checks(self, token: str, approval_id: str, body: Json) -> Json:
+        return await self._obj("POST", f"/v1/approvals/{approval_id}/checks", token=token, json=body)
+
 
 class RunsHttpClient(ServiceHttpClient):
     async def summary(self, token: str) -> Json:

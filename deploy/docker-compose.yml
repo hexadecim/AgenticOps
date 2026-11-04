@@ -130,6 +130,8 @@ services:
       <<: *service-env
       DATABASE_URL: postgresql+asyncpg://mail_svc:mail_dev_password@postgres:5432/opspilot
       SETTINGS_URL: http://settings-service:8002
+      # Not in depends_on: privacy-service starts after mail-service. Approved messages wait until it answers.
+      PRIVACY_URL: http://privacy-service:8004
       # One poller per deployment; set false on extra replicas (the dedupe key keeps a second one harmless).
       POLLER_ENABLED: "true"
     volumes: ["./resilience.yaml:/etc/opspilot/resilience.yaml:ro"]

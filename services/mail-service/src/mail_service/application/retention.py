@@ -22,6 +22,7 @@ class PurgeExpiredEmails:
         cutoff = self._clock.now() - timedelta(days=self._days)
         async with self._uow() as uow:
             deleted = await uow.emails.delete_fetched_before(cutoff)
+            await uow.outgoing.delete_created_before(cutoff)  # tokenised; finished rows only
             if deleted:
                 uow.events.record(
                     PrivacyRecorded(

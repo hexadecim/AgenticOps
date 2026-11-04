@@ -5,10 +5,12 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 from opspilot_common.events import EventEnvelope, parse_payload
-from opspilot_common.events.catalogue import SettingsChanged
+from opspilot_common.events.catalogue import ApprovalDecided, MessageSendRequested, SettingsChanged
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...application import ApplyMailboxSettings
+from ...application import ApplyMailboxSettings, QueueMessage, RecordMessageApproval
+
+MESSAGE_BINDINGS = ["message.send.requested", "approval.decided"]
 
 
 def on_settings_changed(
@@ -21,5 +23,21 @@ def on_settings_changed(
         payload = parse_payload(envelope)
         if isinstance(payload, SettingsChanged) and payload.section == "mailbox" and await apply():
             after_change()
+
+    return handle
+
+
+def on_message_event(
+    queue: QueueMessage, approval: RecordMessageApproval, wake: Callable[[], None]
+) -> Callable[[AsyncSession, EventEnvelope], Awaitable[None]]:
+    """The request and the decision arrive in any order; the sender needs both."""
+
+    async def handle(_: AsyncSession, envelope: EventEnvelope) -> None:
+        payload = parse_payload(envelope)
+        if isinstance(payload, MessageSendRequested):
+            if await queue(payload):
+                wake()
+        elif isinstance(payload, ApprovalDecided) and await approval(payload):
+            wake()
 
     return handle

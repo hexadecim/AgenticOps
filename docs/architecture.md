@@ -89,10 +89,10 @@ State: `email` (tokenised), `intake`, `duplicate_of`, `jira_key`, `diagnosis`, `
 1. `privacy_gate` calls privacy-service to tokenise. **Fail closed.**
 2. `intake`: deepseek fills a typed schema via `with_structured_output(IntakeResult, method="json_schema")`, temperature 0, with the `<think>` reasoning kept separate and stored in the trace.
 3. `dedupe` runs a Jira JQL search over the last 24 h plus embedding similarity (threshold 0.80). A match links the email to the existing issue.
-4. If details are missing, `comms` drafts a follow-up question, which goes to gate T3.
+4. (Changed by [ADR-0007](adr/0007-comms-and-message-gate.md): a follow-up question for missing details is drafted at the end of the run, not here, so T3 never holds up a ticket.)
 5. `gate_ticket` (T1) calls `interrupt()`, which publishes `approval.requested`. Approve calls jira-connector to create the issue; reject ends the run.
 6. `diagnostics` calls ops-service for probes, logs and runbooks. It proposes a fix only from the runbook allow-list.
-7. `gate_fix` (T2) calls `interrupt()`. Approve executes the action, then `health_check` re-runs the probes. Reject goes to comms with the note.
+7. `gate_fix` (T2) calls `interrupt()`. Approve executes the action, then `health_check` re-runs the probes. Reject goes to comms with the note (as an internal hint, not for quoting).
 8. `comms` drafts the message and runs automated checks: facts match the ticket, no ETAs, no other personal data, recipients match the linked reporters, AI disclosure present.
 9. `gate_message` (T3) calls `interrupt()`. Approve publishes `message.send.requested`, mail-service detokenises through privacy-service and sends the emails. Send-back allows at most 2 revisions.
 
@@ -185,5 +185,5 @@ After each milestone, update the CLAUDE.md memory log.
 - **Graph tests**: with a MemorySaver, the graph stops at each `interrupt`, approve and reject take the right branches, and a duplicate `approval.decided` is idempotent.
 - **Circuit breaker tests**: cut Ollama, Jira and mail through toxiproxy. Assert that the breaker opens after N failures, the fallback behaviour matches the list above, it goes half-open and then closes after recovery, there are no duplicate Jira issues (idempotency key), and the dashboard shows the state.
 - **Architecture tests**: import-linter enforces the layer boundaries and that no service imports another service's code.
-- **End-to-end**: `make up`. In Admin, configure IMAP (Gmail app password), Jira Cloud (sandbox project) and Ollama. Send a test email; it appears in Approvals. Approve it; the KAN-n issue appears in Jira; the audit log shows pseudonymise → classify → approve_ticket → create_jira_issue. Then exercise T2 with the mock executor and T3 by sending to your own address.
+- **End-to-end**: `make up`. In Admin, configure IMAP (Gmail app password), Jira Cloud (sandbox project) and Ollama. Send a test email; it appears in Approvals. Approve it; the KAN-n issue appears in Jira; the audit log shows pseudonymise → classify → approve_ticket → create_jira_issue. Then exercise T2 with the mock executor and T3 against the GreenMail dev mailbox with synthetic mail (never send test mail to a real inbox).
 - **UI check**: compare each page with the wireframe artboards in light and dark themes.

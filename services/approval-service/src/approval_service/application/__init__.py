@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from opspilot_common.auth.principal import Principal
+from opspilot_common.drafts import Check
 from opspilot_common.events.catalogue import (
     ActionExecuted,
     ApprovalDecided,
@@ -17,6 +18,8 @@ from opspilot_common.events.catalogue import (
     JiraIssueCreated,
     JiraIssueFailed,
     JiraIssueLinked,
+    MessageFailed,
+    MessageSent,
     RunStatusChanged,
 )
 
@@ -163,6 +166,42 @@ class RecordTicketOutcome:
                 approval.linked(p.issue_key)
             else:
                 approval.ticket_failed(p.reason)
+            await uow.approvals.save(approval)
+            await uow.commit()
+
+
+class CheckDraft:
+    """The draft checks on an approver's edits, before they decide, so the screen never shows stale ticks."""
+
+    def __init__(self, uow: UowFactory) -> None:
+        self._uow = uow
+
+    async def __call__(self, principal: Principal, approval_id: str, edits: dict[str, Any]) -> list[Check]:
+        _require_viewer(principal)
+        async with self._uow() as uow:
+            approval = await uow.approvals.get(approval_id)
+        if approval is None:
+            raise NotFoundError(approval_id)
+        return approval.message_checks(edits)
+
+
+class RecordMessageOutcome:
+    """mail-service's result for an approved message gate."""
+
+    def __init__(self, uow: UowFactory) -> None:
+        self._uow = uow
+
+    async def __call__(self, p: MessageSent | MessageFailed) -> None:
+        if p.approval_id is None:
+            return
+        async with self._uow() as uow:
+            approval = await uow.approvals.get(p.approval_id)
+            if approval is None or approval.gate is not Gate.MESSAGE:
+                return
+            if isinstance(p, MessageSent):
+                approval.message_result(p.recipient_tokens, p.failed_tokens, p.detail)
+            else:
+                approval.message_result([], p.failed_tokens, p.reason)
             await uow.approvals.save(approval)
             await uow.commit()
 

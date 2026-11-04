@@ -56,6 +56,7 @@ def create_app(
                 handler = on_event(
                     container.start_run, container.record_decision, container.record_ticket,
                     container.llm_settings, worker.wake, container.record_fix,
+                    container.record_message,
                 )  # fmt: skip
                 runtime.add_consumer("events", BINDINGS, inbox.guard(container.sessions, handler))
                 await runtime.start()

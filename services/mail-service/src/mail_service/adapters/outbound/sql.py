@@ -19,6 +19,7 @@ from sqlalchemy import (
     String,
     Table,
     Text,
+    UniqueConstraint,
     delete,
     insert,
     select,
@@ -27,8 +28,9 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ...domain.mail import Address, Attachment, IncomingMail, StoredEmail
+from ...domain.outgoing import OutgoingMessage, OutgoingStatus
 from ...domain.status import PollState
-from ...ports import EmailRepository, EventRecorder, PollStateRepository
+from ...ports import EmailRepository, EventRecorder, OutgoingRepository, PollStateRepository
 
 SERVICE = "mail-service"
 
@@ -69,6 +71,34 @@ class MailTables:
             Column("consecutive_failures", Integer, nullable=False),
             Column("last_new_count", Integer, nullable=False),
             Column("total_received", Integer, nullable=False),
+        )
+        self.outgoing = Table(
+            "outgoing",
+            self.metadata,
+            Column("id", String(36), primary_key=True),
+            Column("message_id", String(36), nullable=False, index=True),
+            Column("approval_id", String(36), nullable=False, index=True),
+            Column("run_id", String(36), nullable=False),
+            Column("thread_id", String(36), nullable=False),
+            Column("email_id", String(36), nullable=False),
+            Column("email_token", String(40), nullable=False),
+            Column("name_token", String(40), nullable=True),
+            Column("subject", Text, nullable=False),
+            Column("body", Text, nullable=False),
+            Column("jira_key", String(40), nullable=True),
+            Column("kind", String(20), nullable=True),
+            Column("status", String(10), nullable=False, index=True),
+            Column("attempts", Integer, nullable=False),
+            Column("detail", Text, nullable=True),
+            Column("created_at", DateTime(timezone=True), nullable=False, index=True),
+            Column("next_try_at", DateTime(timezone=True), nullable=False),
+            UniqueConstraint("message_id", "email_token", name="uq_outgoing_message_recipient"),
+        )
+        self.approved_messages = Table(
+            "approved_messages",
+            self.metadata,
+            Column("approval_id", String(36), primary_key=True),
+            Column("approved_at", DateTime(timezone=True), nullable=False, index=True),
         )
         self.outbox = outbox_table(self.metadata)
         self.inbox = inbox_table(self.metadata)
@@ -166,6 +196,83 @@ class SqlEmailRepository:
         return int(result.rowcount or 0)  # type: ignore[attr-defined]
 
 
+def _outgoing(r: Any) -> OutgoingMessage:
+    return OutgoingMessage(
+        id=r.id, message_id=r.message_id, approval_id=r.approval_id, run_id=r.run_id, thread_id=r.thread_id,
+        email_id=r.email_id, email_token=r.email_token, name_token=r.name_token, subject=r.subject,
+        body=r.body, created_at=r.created_at.replace(tzinfo=r.created_at.tzinfo or UTC),
+        next_try_at=r.next_try_at.replace(tzinfo=r.next_try_at.tzinfo or UTC),
+        jira_key=r.jira_key, kind=r.kind, status=OutgoingStatus(r.status), attempts=r.attempts,
+        detail=r.detail,
+    )  # fmt: skip
+
+
+class SqlOutgoingRepository:
+    def __init__(self, session: AsyncSession, tables: MailTables) -> None:
+        self._s, self._t, self._approved = session, tables.outgoing, tables.approved_messages
+
+    async def exists(self, message_id: str) -> bool:
+        row = await self._s.execute(select(self._t.c.id).where(self._t.c.message_id == message_id).limit(1))
+        return row.first() is not None
+
+    async def add(self, message: OutgoingMessage) -> None:
+        await self._s.execute(
+            insert(self._t).values(
+                id=message.id, message_id=message.message_id, approval_id=message.approval_id,
+                run_id=message.run_id, thread_id=message.thread_id, email_id=message.email_id,
+                email_token=message.email_token, name_token=message.name_token, subject=message.subject,
+                body=message.body, jira_key=message.jira_key, kind=message.kind, status=message.status.value,
+                attempts=message.attempts, detail=message.detail, created_at=message.created_at,
+                next_try_at=message.next_try_at,
+            )
+        )  # fmt: skip
+
+    async def save(self, message: OutgoingMessage) -> None:
+        await self._s.execute(
+            update(self._t)
+            .where(self._t.c.id == message.id)
+            .values(
+                status=message.status.value, attempts=message.attempts, detail=message.detail,
+                next_try_at=message.next_try_at,
+            )
+        )  # fmt: skip
+
+    async def approve(self, approval_id: str, at: datetime) -> None:
+        seen = await self._s.execute(
+            select(self._approved.c.approval_id).where(self._approved.c.approval_id == approval_id)
+        )
+        if seen.first() is None:
+            await self._s.execute(insert(self._approved).values(approval_id=approval_id, approved_at=at))
+
+    async def due(self, now: datetime, limit: int) -> list[OutgoingMessage]:
+        rows = await self._s.execute(
+            select(self._t)
+            .join(self._approved, self._approved.c.approval_id == self._t.c.approval_id)
+            .where(self._t.c.status == OutgoingStatus.PENDING.value, self._t.c.next_try_at <= now)
+            .order_by(self._t.c.created_at)
+            .limit(limit)
+        )
+        return [_outgoing(r) for r in rows]
+
+    async def of_message(self, message_id: str) -> list[OutgoingMessage]:
+        rows = await self._s.execute(select(self._t).where(self._t.c.message_id == message_id))
+        return [_outgoing(r) for r in rows]
+
+    async def interrupted(self) -> list[OutgoingMessage]:
+        rows = await self._s.execute(select(self._t).where(self._t.c.status == OutgoingStatus.SENDING.value))
+        return [_outgoing(r) for r in rows]
+
+    async def delete_created_before(self, cutoff: datetime) -> int:
+        await self._s.execute(delete(self._approved).where(self._approved.c.approved_at < cutoff))
+        result = await self._s.execute(
+            delete(self._t).where(
+                self._t.c.created_at < cutoff,
+                self._t.c.status.in_([OutgoingStatus.SENT.value, OutgoingStatus.FAILED.value]),
+            )
+        )
+        return int(result.rowcount or 0)  # type: ignore[attr-defined]
+
+
 class SqlPollStateRepository:
     _ID = 1
 
@@ -216,6 +323,7 @@ class _Recorder:
 class SqlUnitOfWork:
     emails: EmailRepository
     poll_state: PollStateRepository
+    outgoing: OutgoingRepository
     events: EventRecorder
 
     def __init__(self, sessions: async_sessionmaker[AsyncSession], tables: MailTables) -> None:
@@ -227,6 +335,7 @@ class SqlUnitOfWork:
         await self._session.begin()
         self.emails = SqlEmailRepository(self._session, self._tables)
         self.poll_state = SqlPollStateRepository(self._session, self._tables)
+        self.outgoing = SqlOutgoingRepository(self._session, self._tables)
         self._recorder = _Recorder()
         self.events = self._recorder
         return self

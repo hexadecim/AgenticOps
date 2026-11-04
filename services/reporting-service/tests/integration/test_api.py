@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import fakeredis.aioredis
 import httpx
@@ -13,6 +14,7 @@ from reporting_service.adapters.inbound.events import on_any_event
 from reporting_service.bootstrap import build_container
 from reporting_service.config import Settings
 from reporting_service.main import create_app
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine
 
 SECRET = "reporting-test-jwt-secret-at-least-32-chars"
@@ -180,3 +182,45 @@ async def test_dashboard_from_events(client: httpx.AsyncClient) -> None:
     again = (await client.get("/v1/incidents/KAN-19/timeline", headers=user())).json()
     assert len(again["entries"]) == 12
     assert (await client.get("/v1/incidents/KAN-404/timeline", headers=user())).json()["entries"] == []
+
+
+async def test_verdict_outlives_the_customer_message_and_follow_ups_wait_for_the_reply() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    container = build_container(
+        Settings(jwt_secret=SECRET, log_json=False),
+        engine=engine,
+        schema="",
+        redis=fakeredis.aioredis.FakeRedis(),
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(container.tables.metadata.create_all)
+    handle = Inbox(container.tables.inbox, "reporting-service.all").guard(
+        container.sessions, on_any_event(container.sessions, container.tables)
+    )
+    for envelope in (
+        run(1, "resolved", node="health_check"),
+        run(2, "waiting_approval", node="gate_message"),
+        run(3, "resolved", node="await_send"),
+        run(1, "waiting_customer", n=2),
+    ):
+        await handle(envelope)
+    t = container.tables
+
+    async def status_of(run_id: str) -> Any:
+        async with container.sessions() as session:
+            return (await session.execute(select(t.cases).where(t.cases.c.run_id == run_id))).one()
+
+    fixed, asking = await status_of("r-1"), await status_of("r-2")
+    assert fixed.verdict == "resolved" and fixed.status == "resolved"
+    # When it was fixed, not when the message went out.
+    assert fixed.verdict_at.replace(tzinfo=UTC) == T0 + timedelta(minutes=1)
+    assert asking.status == "waiting_customer"
+    async with container.sessions() as session:
+        notes = (await session.execute(select(t.timeline.c.text))).scalars().all()
+    assert (
+        sum(n.startswith("Resolved:") for n in notes) == 1
+    )  # the repeat at the run's end adds no second note
+
+    await handle(at(5, c.EmailReceived(email_id="e-9", thread_id="t-2", provider="imap", received_at=T0)))
+    assert (await status_of("r-2")).status == "customer_replied"
+    await engine.dispose()

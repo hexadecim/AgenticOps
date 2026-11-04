@@ -254,6 +254,11 @@ def build_router(
     async def decide(token: Token, approval_id: str, body: dict[str, Any]) -> dict[str, Any]:
         return await approvals.decide(token, approval_id, body)
 
+    @router.post("/approvals/{approval_id}/checks", tags=["approvals"])
+    async def draft_checks(token: Token, approval_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """T3: the draft checks on the approver's edits, before they decide."""
+        return await approvals.checks(token, approval_id, body)
+
     @router.get("/fixes/{approval_id}/evidence", tags=["approvals"])
     async def fix_evidence(token: Token, approval_id: str) -> dict[str, Any]:
         """Fresh probes and masked logs for a pending T2 fix. 503 when ops-service's circuit is open: the

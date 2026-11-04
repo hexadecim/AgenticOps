@@ -27,6 +27,8 @@ class RunStatus(StrEnum):
     FIX_REJECTED = "fix_rejected"
     FIX_FAILED = "fix_failed"  # the action failed or the probes still fail afterwards: on-call
     RESOLVED = "resolved"  # the action ran and the health re-check passed
+    MESSAGE_APPROVED = "message_approved"  # T3 approved; mail-service is sending it
+    WAITING_CUSTOMER = "waiting_customer"  # final for the run: a follow-up question went out
     FAILED = "failed"
 
 
@@ -41,7 +43,11 @@ ACTIONABLE = frozenset(
     }
 )
 # Where the graph waits for another service's result, and the status the run shows meanwhile.
-AWAITS = {"ticket": ("await_ticket", RunStatus.APPROVED), "fix": ("await_fix", RunStatus.FIX_APPROVED)}
+AWAITS = {
+    "ticket": ("await_ticket", RunStatus.APPROVED),
+    "fix": ("await_fix", RunStatus.FIX_APPROVED),
+    "send": ("await_send", RunStatus.MESSAGE_APPROVED),
+}
 
 
 @dataclass(slots=True)
@@ -74,7 +80,7 @@ class Run:
         self.node, self.detail = node, None
 
     def waiting_for(self, kind: str, now: datetime, detail: str) -> None:
-        """The graph waits at await_ticket / await_fix. If the result is already here, continue at once."""
+        """The graph waits for another service's result. If the result is already here, continue at once."""
         node, status = AWAITS[kind]
         self.node, self.updated_at = node, now
         if kind in self.results:

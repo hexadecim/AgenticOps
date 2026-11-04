@@ -58,6 +58,14 @@ class ThreadTickets(Protocol):
         """How many runs (reporters) are linked to the ticket."""
         ...
 
+    async def remember_reporter(self, run_id: str, reporter: dict[str, Any]) -> None:
+        """Keep the run's reporter (tokens and email id only), so a later resolution can reach them."""
+        ...
+
+    async def linked_reporters(self, jira_key: str, *, exclude_run: str) -> list[dict[str, Any] | None]:
+        """Each other run linked to the ticket, oldest first; None for a run without a stored reporter."""
+        ...
+
 
 class OpsEvidence(Protocol):
     async def diagnose(
@@ -77,6 +85,12 @@ class FixAdvisor(Protocol):
         ...
 
 
+class CommsWriter(Protocol):
+    async def write(self, brief: str) -> str:
+        """The message text for this brief. Raise LlmUnavailableError or DraftUnusableError."""
+        ...
+
+
 @dataclass(frozen=True)
 class AgentPorts:
     privacy: Pseudonymiser
@@ -87,6 +101,7 @@ class AgentPorts:
     threads: ThreadTickets
     ops: OpsEvidence | None = None  # None: diagnostics is skipped (the run ends at the ticket)
     advisor: FixAdvisor | None = None
+    comms: CommsWriter | None = None  # None: no customer messages (the run ends at its outcome)
 
 
 class LlmCircuit(Protocol):

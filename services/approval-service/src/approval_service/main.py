@@ -37,6 +37,7 @@ def create_app(
                 container.record_outcome,
                 container.record_fix,
                 container.record_health,
+                container.record_message,
             )
             runtime.add_consumer("events", BINDINGS, inbox.guard(container.sessions, handler))
             await runtime.start()

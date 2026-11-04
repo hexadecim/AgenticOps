@@ -72,8 +72,22 @@ def _sent(p: c.MessageSent, e: EventEnvelope) -> Description:
         Kind.TOOL,
         "Mail service",
         "send_email",
-        f"Email sent to {to}",
+        f"Email sent to {to}"
+        + (f"; not sent to {', '.join(f'[{t}]' for t in p.failed_tokens)}" if p.failed_tokens else ""),
         "Detokenised at send time only",
+        p.jira_key,
+        p.thread_id,
+    )
+
+
+def _message_failed(p: c.MessageFailed, e: EventEnvelope) -> Description:
+    to = ", ".join(f"[{t}]" for t in p.failed_tokens) or "no recipients"
+    return Description(
+        Kind.TOOL,
+        "Mail service",
+        "send_email_failed",
+        f"Email to {to} not sent: {p.reason}",
+        "Tokens only",
         p.jira_key,
         p.thread_id,
     )
@@ -271,6 +285,7 @@ DESCRIBERS: dict[str, _Describer] = {
     c.EventType.EMAIL_RECEIVED: _email_received,  # type: ignore[dict-item]
     c.EventType.MESSAGE_SEND_REQUESTED: _send_requested,  # type: ignore[dict-item]
     c.EventType.MESSAGE_SENT: _sent,  # type: ignore[dict-item]
+    c.EventType.MESSAGE_FAILED: _message_failed,  # type: ignore[dict-item]
     c.EventType.RUN_STATUS_CHANGED: _run_status,  # type: ignore[dict-item]
     c.EventType.APPROVAL_REQUESTED: _approval_requested,  # type: ignore[dict-item]
     c.EventType.APPROVAL_DECIDED: _approval_decided,  # type: ignore[dict-item]

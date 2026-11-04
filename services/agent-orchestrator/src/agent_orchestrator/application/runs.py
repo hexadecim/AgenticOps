@@ -17,6 +17,8 @@ from opspilot_common.events.catalogue import (
     JiraIssueCreated,
     JiraIssueFailed,
     JiraIssueLinked,
+    MessageFailed,
+    MessageSent,
     RunStatusChanged,
 )
 
@@ -108,16 +110,17 @@ class RecordTicketResult:
             if isinstance(p, JiraIssueFailed):
                 run.finish(RunStatus.FAILED, now, f"Jira refused the ticket: {p.reason}")
                 announce = _status_event(run)
-            elif isinstance(p, JiraIssueCreated) and (run.node == "await_ticket" or busy):
+            elif run.node == "await_ticket" or busy:
                 run.jira_key = p.issue_key
                 # Waiting at await_ticket: continue now. Still on the way there (race with the worker): the
                 # result is kept and the worker continues as soon as the graph reaches await_ticket.
                 continues = run.result_arrived("ticket", now, {"jira_key": p.issue_key})
+                next_step = "Diagnostics next" if isinstance(p, JiraIssueCreated) else "Report linked"
                 announce = _status_event(run).model_copy(
-                    update={"status": RunStatus.TICKET_CREATED.value, "detail": "Diagnostics next"}
+                    update={"status": RunStatus.TICKET_CREATED.value, "detail": next_step}
                 )
             else:
-                run.ticket(now, p.issue_key)  # linked report, or a run from before diagnostics existed
+                run.ticket(now, p.issue_key)  # a run from before the graph waited for this result
                 announce = _status_event(run)
             await uow.runs.save(run)
             uow.events.record(announce, actor=ACTOR)
@@ -138,8 +141,37 @@ class RecordFixResult:
             )
             if run is None or run.approval_id != p.approval_id:
                 return False
-            value = {"ok": p.ok, "detail": p.detail, "action": p.action, "params": p.params}
-            continues = run.result_arrived("fix", self._clock.now(), value)
+            now = self._clock.now()
+            value = {
+                "ok": p.ok, "detail": p.detail, "action": p.action, "params": p.params, "at": now.isoformat(),
+            }  # fmt: skip
+            continues = run.result_arrived("fix", now, value)
+            await uow.runs.save(run)
+            await uow.commit()
+            return continues
+
+
+class RecordMessageResult:
+    """mail-service sent (or could not send) an approved message: the run can finish."""
+
+    def __init__(self, uow: UowFactory, clock: Clock) -> None:
+        self._uow, self._clock = uow, clock
+
+    async def __call__(self, p: MessageSent | MessageFailed) -> bool:
+        async with self._uow() as uow:
+            run = await uow.runs.get(p.run_id) if p.run_id else None
+            if run is None or run.approval_id != p.approval_id:
+                return False
+            if isinstance(p, MessageSent):
+                value = {
+                    "sent": True,
+                    "recipients": p.recipient_tokens,
+                    "failed": p.failed_tokens,
+                    "detail": p.detail,
+                }
+            else:
+                value = {"sent": False, "recipients": [], "failed": p.failed_tokens, "detail": p.reason}
+            continues = run.result_arrived("send", self._clock.now(), value)
             await uow.runs.save(run)
             await uow.commit()
             return continues
@@ -243,16 +275,17 @@ class AdvanceRuns:
         outcome = result.get("outcome")
         finals: dict[str, tuple[RunStatus, str | None]] = {
             "ignored": (RunStatus.IGNORED, "Not a support request"),
-            "approved": (RunStatus.APPROVED, "Ticket approved; creating it in Jira"),
+            "linked": (RunStatus.TICKET_CREATED, f"Report linked to {result.get('jira_key')}"),
             "no_fix": (RunStatus.TICKET_CREATED, result.get("fix_note")),
             "fix_rejected": (RunStatus.FIX_REJECTED, (result.get("fix_decision") or {}).get("reason")),
             "resolved": (RunStatus.RESOLVED, (result.get("health") or {}).get("detail")),
             "fix_failed": (RunStatus.FIX_FAILED, _failure(result)),
         }
-        status, detail = finals.get(
-            str(outcome), (RunStatus.REJECTED, (result.get("decision") or {}).get("reason"))
+        final, why = _after_message(
+            result,
+            *finals.get(str(outcome), (RunStatus.REJECTED, (result.get("decision") or {}).get("reason"))),
         )
-        await self._save(run, lambda r: r.finish(status, now(), detail))
+        await self._save(run, lambda r: r.finish(final, now(), why))
 
     async def _save(self, run: Run, change: Callable[[Run], None], *, announce: bool = True) -> Run:
         """Apply the change to the stored run (results may have arrived meanwhile) and return it."""
@@ -267,6 +300,28 @@ class AdvanceRuns:
             await uow.commit()
         run.status, run.results = current.status, current.results
         return current
+
+
+def _after_message(
+    result: dict[str, Any], status: RunStatus, detail: str | None
+) -> tuple[RunStatus, str | None]:
+    """The run's outcome stands whatever happened to the customer message; the detail says what did."""
+    outcome = result.get("message_outcome")
+    if not outcome:
+        return status, detail
+    note = {
+        "sent": "Customer message sent",
+        "partly_sent": "Customer message reached only some reporters",
+        "not_sent": "Customer message could not be sent",
+        "rejected": "Approver chose not to send a customer message",
+        "revisions_used": "No customer message: all revisions were used",
+    }[str(outcome)]
+    send = result.get("send_result") or {}
+    if outcome in ("partly_sent", "not_sent") and send.get("detail"):
+        note += f" ({send['detail']})"
+    if outcome == "sent" and (result.get("message") or {}).get("kind") == "follow_up":
+        status = RunStatus.WAITING_CUSTOMER
+    return status, f"{detail}. {note}" if detail else note
 
 
 def _failure(result: dict[str, Any]) -> str:

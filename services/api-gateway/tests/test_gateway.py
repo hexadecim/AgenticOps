@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 
 import fakeredis.aioredis
@@ -236,6 +237,15 @@ async def test_approval_routes_are_forwarded(client: httpx.AsyncClient) -> None:
     )
     r = await client.get("/api/approvals", params={"gate": "ticket"}, headers=session(Role.L1_ANALYST))
     assert r.status_code == 200 and queue.calls.last.request.url.params["gate"] == "ticket"
+    checks = respx.post(f"{APPROVALS}/v1/approvals/a-1/checks").mock(
+        return_value=httpx.Response(200, json={"checks": []})
+    )
+    r = await client.post(
+        "/api/approvals/a-1/checks",
+        json={"edits": {"body": "x"}},
+        headers={**session(Role.L1_ANALYST), **WEB},
+    )
+    assert r.status_code == 200 and json.loads(checks.calls.last.request.content) == {"edits": {"body": "x"}}
     decide = respx.post(f"{APPROVALS}/v1/approvals/a-1/decision").mock(
         return_value=httpx.Response(
             409, json={"code": "already_decided", "message": "Someone already decided this"}

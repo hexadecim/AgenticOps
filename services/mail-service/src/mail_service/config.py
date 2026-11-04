@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     rabbitmq_url: str = "amqp://opspilot:opspilot@localhost:5672/"
     redis_url: str = "redis://localhost:6379/0"
     settings_url: str = "http://localhost:8002"
+    privacy_url: str = "http://localhost:8004"
     jwt_secret: str = Field(min_length=32)
     resilience_config: str | None = None
     log_json: bool = True

@@ -11,6 +11,7 @@ from typing import Any, Protocol, Self
 from opspilot_common.events.envelope import EventPayload
 
 from ..domain.mail import FetchBatch, MailboxConfig, OutgoingMail, StoredEmail
+from ..domain.outgoing import OutgoingMessage
 from ..domain.status import PollState
 
 
@@ -70,6 +71,32 @@ class EmailRepository(Protocol):
     async def delete_fetched_before(self, cutoff: datetime) -> int: ...
 
 
+class Detokeniser(Protocol):
+    async def detokenise(self, text: str, *, thread_id: str) -> str:
+        """Real values in place of tokens. Raise DetokeniseUnavailableError or DetokeniseRefusedError."""
+        ...
+
+
+class OutgoingRepository(Protocol):
+    async def exists(self, message_id: str) -> bool: ...
+    async def add(self, message: OutgoingMessage) -> None: ...
+    async def save(self, message: OutgoingMessage) -> None: ...
+    async def approve(self, approval_id: str, at: datetime) -> None:
+        """A person approved this message (`approval.decided`). Safe to repeat."""
+        ...
+
+    async def due(self, now: datetime, limit: int) -> list[OutgoingMessage]:
+        """Pending rows that are due and whose approval has been seen; oldest first."""
+        ...
+
+    async def of_message(self, message_id: str) -> list[OutgoingMessage]: ...
+    async def interrupted(self) -> list[OutgoingMessage]:
+        """Rows a crash left in `sending`."""
+        ...
+
+    async def delete_created_before(self, cutoff: datetime) -> int: ...
+
+
 class PollStateRepository(Protocol):
     async def get(self) -> PollState: ...
     async def save(self, state: PollState) -> None: ...
@@ -82,6 +109,7 @@ class EventRecorder(Protocol):
 class UnitOfWork(Protocol):
     emails: EmailRepository
     poll_state: PollStateRepository
+    outgoing: OutgoingRepository
     events: EventRecorder
 
     async def __aenter__(self) -> Self: ...

@@ -12,11 +12,19 @@ from opspilot_common.events.catalogue import (
     JiraIssueCreated,
     JiraIssueFailed,
     JiraIssueLinked,
+    MessageFailed,
+    MessageSent,
     SettingsChanged,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...application import RecordDecision, RecordFixResult, RecordTicketResult, StartRun
+from ...application import (
+    RecordDecision,
+    RecordFixResult,
+    RecordMessageResult,
+    RecordTicketResult,
+    StartRun,
+)
 from ..outbound.llm import LlmSettingsCache
 
 BINDINGS = [
@@ -26,6 +34,8 @@ BINDINGS = [
     "jira.issue.linked",
     "jira.issue.failed",
     "action.executed",
+    "message.sent",
+    "message.failed",
     "settings.changed",
 ]
 
@@ -37,6 +47,7 @@ def on_event(
     llm_settings: LlmSettingsCache,
     wake: Callable[[], None],
     fix: RecordFixResult | None = None,
+    message: RecordMessageResult | None = None,
 ) -> Callable[[AsyncSession, EventEnvelope], Awaitable[None]]:
     async def handle(_: AsyncSession, envelope: EventEnvelope) -> None:
         payload = parse_payload(envelope)
@@ -51,6 +62,9 @@ def on_event(
                 wake()
         elif isinstance(payload, ActionExecuted) and fix is not None:
             if await fix(payload):
+                wake()
+        elif isinstance(payload, MessageSent | MessageFailed) and message is not None:
+            if await message(payload):
                 wake()
         elif isinstance(payload, SettingsChanged) and payload.section == "llm":
             await llm_settings.get(refresh=True)

@@ -43,3 +43,15 @@ class EmailNotFoundError(MailError):
 
     def __init__(self, email_id: str) -> None:
         super().__init__(f"Email {email_id} does not exist or was deleted after the retention period.")
+
+
+class DetokeniseUnavailableError(MailError):
+    """privacy-service cannot resolve tokens right now: the message waits. Nothing goes out with tokens."""
+
+    code = "detokenise_unavailable"
+
+
+class DetokeniseRefusedError(MailError):
+    """privacy-service refused for good (e.g. an unknown or erased token): this message cannot go out."""
+
+    code = "detokenise_refused"

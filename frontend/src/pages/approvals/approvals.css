@@ -64,3 +64,18 @@
   .param-grid, .impact-grid { grid-template-columns: minmax(0, 1fr); }
   .probe-row { grid-template-columns: 90px minmax(0, 1fr) 64px; }
 }
+
+/* Approve customer message (T3) */
+.message-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 20px; }
+.draft-card { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.draft-meta { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 8px 12px; margin: 0; padding: 18px 20px 14px; font-size: 14px; border-bottom: 1px solid var(--line-soft); }
+.draft-meta dt { color: var(--muted); }
+.draft-meta dd { margin: 0; overflow-wrap: anywhere; }
+.draft-body { padding: 18px 20px; font-size: 15px; line-height: 1.65; white-space: pre-line; overflow-wrap: anywhere; }
+.draft-edit { display: flex; flex-direction: column; gap: 6px; padding: 18px 20px; }
+.draft-edit textarea { min-height: 280px; padding: 12px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font: inherit; font-size: 15px; line-height: 1.6; resize: vertical; }
+.recipient-token { font-family: "IBM Plex Mono", monospace; font-size: 13px; padding: 1px 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); }
+.recipient-row { display: grid; grid-template-columns: minmax(0, 1fr) 100px 110px; gap: 12px; align-items: center; min-height: 40px; border-top: 1px solid var(--line-soft); font-size: 14px; }
+.check-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--line-soft); font-size: 14px; }
+.check-row > svg { flex-shrink: 0; margin-top: 2px; }
+@media (max-width: 1000px) { .message-grid { grid-template-columns: minmax(0, 1fr); } }
