@@ -8,7 +8,9 @@ from types import TracebackType
 from typing import Any, Protocol, Self
 
 from opspilot_common.events.envelope import EventPayload
+from opspilot_common.subjects import StoreReport, SubjectQuery
 
+from ..domain.dsr import DataRequest
 from ..domain.entities import EntityKind, Identity, Span
 from ..domain.records import PseudonymisationRecord, Reveal
 
@@ -58,14 +60,44 @@ class TokenVault(Protocol):
         """All values belonging to the same person as `entry` (including itself)."""
         ...
 
+    async def find(self, kind: EntityKind, value: str) -> VaultEntry | None:
+        """By keyed hash: the value itself is never compared in plaintext."""
+        ...
+
+    async def erase(self, tokens: list[str]) -> int: ...
+    async def unused_since(self, cutoff: datetime, limit: int) -> list[str]:
+        """One token per person none of whose tokens has been used since `cutoff`."""
+        ...
+
 
 class RecordRepository(Protocol):
     async def by_email(self, email_id: str) -> PseudonymisationRecord | None: ...
     async def add(self, record: PseudonymisationRecord) -> None: ...
+    async def mentioning(self, tokens: list[str]) -> list[PseudonymisationRecord]: ...
+    async def delete_emails(self, email_ids: list[str]) -> int: ...
 
 
 class RevealRepository(Protocol):
     async def add(self, reveal: Reveal) -> None: ...
+
+
+class RequestRepository(Protocol):
+    async def next_number(self) -> int: ...
+    async def add(self, request: DataRequest) -> None: ...
+    async def save(self, request: DataRequest) -> None: ...
+    async def get(self, dsr_id: str) -> DataRequest | None: ...
+    async def all(self) -> list[DataRequest]: ...
+
+
+class ErasedEmails(Protocol):
+    async def add(self, email_ids: list[str]) -> None: ...
+    async def contains(self, email_id: str) -> bool: ...
+
+
+class SubjectStores(Protocol):
+    async def gather(self, query: SubjectQuery) -> list[StoreReport]:
+        """Every other service's report. A store that cannot answer comes back with `available=False`."""
+        ...
 
 
 class EventRecorder(Protocol):
@@ -76,6 +108,8 @@ class UnitOfWork(Protocol):
     vault: TokenVault
     records: RecordRepository
     reveals: RevealRepository
+    requests: RequestRepository
+    erased: ErasedEmails
     events: EventRecorder
 
     async def __aenter__(self) -> Self: ...

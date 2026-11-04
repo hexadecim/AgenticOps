@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from types import TracebackType
 from typing import Any, Self
 
 from opspilot_common.events import EventEnvelope, Outbox, inbox_table, outbox_table
 from opspilot_common.events.envelope import EventPayload
 from opspilot_common.logging import correlation_id
+from opspilot_common.subjects_http import mentions
 from sqlalchemy import (
     JSON,
     Boolean,
     Column,
+    Date,
     DateTime,
     Integer,
     MetaData,
@@ -20,16 +22,27 @@ from sqlalchemy import (
     Table,
     Text,
     UniqueConstraint,
+    delete,
+    func,
     insert,
     select,
     update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from ...domain.dsr import DataRequest, DsrStatus, DsrType
 from ...domain.entities import EntityKind
 from ...domain.records import PseudonymisationRecord, Reveal, TokenisedAddress, TokenisedEmail
 from ...domain.tokens import make_token
-from ...ports import EventRecorder, RecordRepository, RevealRepository, TokenVault, VaultEntry
+from ...ports import (
+    ErasedEmails,
+    EventRecorder,
+    RecordRepository,
+    RequestRepository,
+    RevealRepository,
+    TokenVault,
+    VaultEntry,
+)
 from .crypto import VaultCrypto
 
 SERVICE = "privacy-service"
@@ -47,6 +60,7 @@ class PrivacyTables:
             Column("value_enc", Text, nullable=False),
             Column("subject", String(40), nullable=False, index=True),
             Column("created_at", DateTime(timezone=True), nullable=False),
+            Column("last_used_at", DateTime(timezone=True), nullable=False),
             UniqueConstraint("kind", "lookup_hash", name="uq_vault_kind_lookup"),
         )
         self.counters = Table(
@@ -79,6 +93,28 @@ class PrivacyTables:
             Column("created_at", DateTime(timezone=True), nullable=False),
             Column("expires_at", DateTime(timezone=True), nullable=False),
         )
+        self.requests = Table(
+            "data_requests",
+            self.metadata,
+            Column("id", String(12), primary_key=True),
+            Column("type", String(16), nullable=False),
+            Column("status", String(12), nullable=False, index=True),
+            Column("received_on", Date, nullable=False),
+            Column("due_on", Date, nullable=False),
+            Column("address_enc", Text, nullable=True),
+            Column("subject_token", String(40), nullable=True),
+            Column("verified_how", Text, nullable=True),
+            Column("verified_at", DateTime(timezone=True), nullable=True),
+            Column("pending_stores", JSON, nullable=False),
+            Column("erased", JSON, nullable=False),
+            Column("attempt", Integer, nullable=False),
+            Column("outcome", Text, nullable=True),
+            Column("created_at", DateTime(timezone=True), nullable=False),
+            Column("closed_at", DateTime(timezone=True), nullable=True),
+        )
+        self.erased_emails = Table(
+            "erased_emails", self.metadata, Column("email_id", String(36), primary_key=True)
+        )
         self.outbox = outbox_table(self.metadata)
         self.inbox = inbox_table(self.metadata)
 
@@ -97,6 +133,9 @@ class SqlTokenVault:
             select(self._t.c.token).where(self._t.c.kind == kind.value, self._t.c.lookup_hash == lookup)
         )
         if (row := found.first()) is not None:
+            await self._s.execute(
+                update(self._t).where(self._t.c.token == row.token).values(last_used_at=datetime.now(UTC))
+            )
             return str(row.token)
         token = make_token(kind, await self._next_number(kind))
         await self._s.execute(
@@ -107,6 +146,7 @@ class SqlTokenVault:
                 value_enc=self._crypto.seal(value),
                 subject=subject or token,
                 created_at=datetime.now(UTC),
+                last_used_at=datetime.now(UTC),
             )
         )
         return token
@@ -135,6 +175,27 @@ class SqlTokenVault:
             select(self._t).where(self._t.c.subject == entry.subject).order_by(self._t.c.created_at)
         )
         return [self._entry(r) for r in rows]
+
+    async def find(self, kind: EntityKind, value: str) -> VaultEntry | None:
+        lookup = self._crypto.lookup_hash(kind, value)
+        rows = await self._s.execute(
+            select(self._t).where(self._t.c.kind == kind.value, self._t.c.lookup_hash == lookup)
+        )
+        row = rows.first()
+        return self._entry(row) if row else None
+
+    async def erase(self, tokens: list[str]) -> int:
+        if not tokens:
+            return 0
+        done = await self._s.execute(delete(self._t).where(self._t.c.token.in_(tokens)))
+        return int(done.rowcount)  # type: ignore[attr-defined]
+
+    async def unused_since(self, cutoff: datetime, limit: int) -> list[str]:
+        latest = func.max(self._t.c.last_used_at)
+        rows = await self._s.execute(
+            select(self._t.c.subject).group_by(self._t.c.subject).having(latest < cutoff).limit(limit)
+        )
+        return [str(r.subject) for r in rows]
 
 
 def _address_json(a: TokenisedAddress) -> dict[str, str | None]:
@@ -181,8 +242,9 @@ class SqlRecordRepository:
 
     async def by_email(self, email_id: str) -> PseudonymisationRecord | None:
         row = (await self._s.execute(select(self._t).where(self._t.c.email_id == email_id))).first()
-        if row is None:
-            return None
+        return self._record(row) if row is not None else None
+
+    def _record(self, row: Any) -> PseudonymisationRecord:
         return PseudonymisationRecord(
             row.id,
             row.email_id,
@@ -207,6 +269,94 @@ class SqlRecordRepository:
                 created_at=record.created_at,
             )
         )
+
+    async def mentioning(self, tokens: list[str]) -> list[PseudonymisationRecord]:
+        rows = await self._s.execute(select(self._t).where(mentions(self._t.c.email, tokens)))
+        return [self._record(row) for row in rows]
+
+    async def delete_emails(self, email_ids: list[str]) -> int:
+        if not email_ids:
+            return 0
+        done = await self._s.execute(delete(self._t).where(self._t.c.email_id.in_(email_ids)))
+        return int(done.rowcount)  # type: ignore[attr-defined]
+
+
+class SqlRequestRepository:
+    def __init__(self, session: AsyncSession, tables: PrivacyTables, crypto: VaultCrypto) -> None:
+        self._s, self._t, self._c, self._crypto = session, tables.requests, tables.counters, crypto
+
+    def _values(self, r: DataRequest) -> dict[str, Any]:
+        return {
+            "type": r.type.value,
+            "status": r.status.value,
+            "received_on": r.received_on,
+            "due_on": r.due_on,
+            "address_enc": self._crypto.seal(r.address) if r.address else None,
+            "subject_token": r.subject_token,
+            "verified_how": r.verified_how,
+            "verified_at": r.verified_at,
+            "pending_stores": r.pending_stores,
+            "erased": r.erased,
+            "attempt": r.attempt,
+            "outcome": r.outcome,
+            "created_at": r.created_at,
+            "closed_at": r.closed_at,
+        }
+
+    def _request(self, row: Any) -> DataRequest:
+        received: date = row.received_on
+        return DataRequest(
+            row.id, DsrType(row.type), DsrStatus(row.status), received, row.due_on, _aware(row.created_at),
+            address=self._crypto.open(row.address_enc) if row.address_enc else None,
+            subject_token=row.subject_token, verified_how=row.verified_how,
+            verified_at=_aware(row.verified_at) if row.verified_at else None,
+            pending_stores=list(row.pending_stores),
+            erased=dict(row.erased), attempt=row.attempt, outcome=row.outcome,
+            closed_at=_aware(row.closed_at) if row.closed_at else None,
+        )  # fmt: skip
+
+    async def next_number(self) -> int:
+        bumped = await self._s.execute(
+            update(self._c)
+            .where(self._c.c.kind == "DSR")
+            .values(last=self._c.c.last + 1)
+            .returning(self._c.c.last)
+        )
+        if (row := bumped.first()) is not None:
+            return int(row.last)
+        await self._s.execute(insert(self._c).values(kind="DSR", last=1))
+        return 1
+
+    async def add(self, request: DataRequest) -> None:
+        await self._s.execute(insert(self._t).values(id=request.id, **self._values(request)))
+
+    async def save(self, request: DataRequest) -> None:
+        await self._s.execute(
+            update(self._t).where(self._t.c.id == request.id).values(**self._values(request))
+        )
+
+    async def get(self, dsr_id: str) -> DataRequest | None:
+        row = (await self._s.execute(select(self._t).where(self._t.c.id == dsr_id))).first()
+        return self._request(row) if row else None
+
+    async def all(self) -> list[DataRequest]:
+        rows = await self._s.execute(select(self._t).order_by(self._t.c.id.desc()).limit(200))
+        return [self._request(r) for r in rows]
+
+
+class SqlErasedEmails:
+    def __init__(self, session: AsyncSession, tables: PrivacyTables) -> None:
+        self._s, self._t = session, tables.erased_emails
+
+    async def add(self, email_ids: list[str]) -> None:
+        for email_id in email_ids:
+            if not await self.contains(email_id):
+                await self._s.execute(insert(self._t).values(email_id=email_id))
+
+    async def contains(self, email_id: str) -> bool:
+        return (
+            await self._s.execute(select(self._t).where(self._t.c.email_id == email_id))
+        ).first() is not None
 
 
 class SqlRevealRepository:
@@ -242,6 +392,8 @@ class SqlUnitOfWork:
     vault: TokenVault
     records: RecordRepository
     reveals: RevealRepository
+    requests: RequestRepository
+    erased: ErasedEmails
     events: EventRecorder
 
     def __init__(
@@ -256,6 +408,8 @@ class SqlUnitOfWork:
         self.vault = SqlTokenVault(self._session, self._tables, self._crypto)
         self.records = SqlRecordRepository(self._session, self._tables)
         self.reveals = SqlRevealRepository(self._session, self._tables)
+        self.requests = SqlRequestRepository(self._session, self._tables, self._crypto)
+        self.erased = SqlErasedEmails(self._session, self._tables)
         self._recorder = _Recorder()
         self.events = self._recorder
         return self

@@ -5,12 +5,17 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 from opspilot_common.events import EventEnvelope, parse_payload
-from opspilot_common.events.catalogue import ApprovalDecided, MessageSendRequested, SettingsChanged
+from opspilot_common.events.catalogue import (
+    ApprovalDecided,
+    DsrSendRequested,
+    MessageSendRequested,
+    SettingsChanged,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...application import ApplyMailboxSettings, QueueMessage, RecordMessageApproval
+from ...application import ApplyMailboxSettings, QueueDsrMessage, QueueMessage, RecordMessageApproval
 
-MESSAGE_BINDINGS = ["message.send.requested", "approval.decided"]
+MESSAGE_BINDINGS = ["message.send.requested", "approval.decided", "dsr.send_requested"]
 
 
 def on_settings_changed(
@@ -28,7 +33,10 @@ def on_settings_changed(
 
 
 def on_message_event(
-    queue: QueueMessage, approval: RecordMessageApproval, wake: Callable[[], None]
+    queue: QueueMessage,
+    approval: RecordMessageApproval,
+    wake: Callable[[], None],
+    dsr: QueueDsrMessage | None = None,
 ) -> Callable[[AsyncSession, EventEnvelope], Awaitable[None]]:
     """The request and the decision arrive in any order; the sender needs both."""
 
@@ -37,7 +45,9 @@ def on_message_event(
         if isinstance(payload, MessageSendRequested):
             if await queue(payload):
                 wake()
-        elif isinstance(payload, ApprovalDecided) and await approval(payload):
+        elif (isinstance(payload, ApprovalDecided) and await approval(payload)) or (
+            isinstance(payload, DsrSendRequested) and dsr is not None and await dsr(payload)
+        ):
             wake()
 
     return handle

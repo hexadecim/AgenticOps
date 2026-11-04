@@ -3,6 +3,7 @@ two pollers race."""
 
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime
 from types import TracebackType
 from typing import Any, Self
@@ -27,10 +28,17 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from ...domain.dsr_message import DsrMessage
 from ...domain.mail import Address, Attachment, IncomingMail, StoredEmail
 from ...domain.outgoing import OutgoingMessage, OutgoingStatus
 from ...domain.status import PollState
-from ...ports import EmailRepository, EventRecorder, OutgoingRepository, PollStateRepository
+from ...ports import (
+    DsrMessageRepository,
+    EmailRepository,
+    EventRecorder,
+    OutgoingRepository,
+    PollStateRepository,
+)
 
 SERVICE = "mail-service"
 
@@ -100,6 +108,25 @@ class MailTables:
             Column("approval_id", String(36), primary_key=True),
             Column("approved_at", DateTime(timezone=True), nullable=False, index=True),
         )
+        self.dsr_messages = Table(
+            "dsr_messages",
+            self.metadata,
+            Column("id", String(60), primary_key=True),
+            Column("dsr_id", String(12), nullable=False),
+            Column("kind", String(24), nullable=False),
+            Column("attempt", Integer, nullable=False),
+            Column("status", String(10), nullable=False, index=True),
+            Column("tries", Integer, nullable=False),
+            Column("detail", Text, nullable=True),
+            Column("created_at", DateTime(timezone=True), nullable=False),
+            Column("next_try_at", DateTime(timezone=True), nullable=False),
+        )
+        self.erased_emails = Table(
+            "erased_emails",
+            self.metadata,
+            Column("key_hash", String(64), primary_key=True),
+            Column("erased_at", DateTime(timezone=True), nullable=False),
+        )
         self.outbox = outbox_table(self.metadata)
         self.inbox = inbox_table(self.metadata)
 
@@ -119,10 +146,17 @@ def _addrs(items: list[dict[str, str]]) -> tuple[Address, ...]:
 class SqlEmailRepository:
     def __init__(self, session: AsyncSession, tables: MailTables) -> None:
         self._s, self._t = session, tables.emails
+        self._tomb = tables.erased_emails
 
     async def exists(self, dedupe_key: str) -> bool:
         found = await self._s.execute(select(self._t.c.id).where(self._t.c.dedupe_key == dedupe_key))
-        return found.first() is not None
+        if found.first() is not None:
+            return True
+        tomb = self._tomb
+        hashed = hashlib.sha256(dedupe_key.encode()).hexdigest()
+        return (
+            await self._s.execute(select(tomb.c.key_hash).where(tomb.c.key_hash == hashed))
+        ).first() is not None
 
     async def add(self, email: StoredEmail) -> None:
         m = email.mail
@@ -320,10 +354,59 @@ class _Recorder:
         )
 
 
+class SqlDsrMessageRepository:
+    def __init__(self, session: AsyncSession, tables: MailTables) -> None:
+        self._s, self._t = session, tables.dsr_messages
+
+    def _row(self, row: Any) -> DsrMessage:
+        return DsrMessage(
+            row.id, row.dsr_id, row.kind, row.attempt, _aware(row.created_at), _aware(row.next_try_at),  # type: ignore[arg-type]
+            OutgoingStatus(row.status), row.tries, row.detail,
+        )  # fmt: skip
+
+    async def exists(self, message_id: str) -> bool:
+        return (
+            await self._s.execute(select(self._t.c.id).where(self._t.c.id == message_id))
+        ).first() is not None
+
+    async def add(self, message: DsrMessage) -> None:
+        await self._s.execute(
+            insert(self._t).values(
+                id=message.id, dsr_id=message.dsr_id, kind=message.kind, attempt=message.attempt,
+                status=message.status.value, tries=message.tries, detail=message.detail,
+                created_at=message.created_at, next_try_at=message.next_try_at,
+            )
+        )  # fmt: skip
+
+    async def save(self, message: DsrMessage) -> None:
+        await self._s.execute(
+            update(self._t)
+            .where(self._t.c.id == message.id)
+            .values(
+                status=message.status.value, tries=message.tries, detail=message.detail,
+                next_try_at=message.next_try_at,
+            )
+        )  # fmt: skip
+
+    async def due(self, now: datetime, limit: int) -> list[DsrMessage]:
+        rows = await self._s.execute(
+            select(self._t)
+            .where(self._t.c.status == OutgoingStatus.PENDING.value, self._t.c.next_try_at <= now)
+            .order_by(self._t.c.created_at)
+            .limit(limit)
+        )
+        return [self._row(r) for r in rows]
+
+    async def interrupted(self) -> list[DsrMessage]:
+        rows = await self._s.execute(select(self._t).where(self._t.c.status == OutgoingStatus.SENDING.value))
+        return [self._row(r) for r in rows]
+
+
 class SqlUnitOfWork:
     emails: EmailRepository
     poll_state: PollStateRepository
     outgoing: OutgoingRepository
+    dsr_messages: DsrMessageRepository
     events: EventRecorder
 
     def __init__(self, sessions: async_sessionmaker[AsyncSession], tables: MailTables) -> None:
@@ -336,6 +419,7 @@ class SqlUnitOfWork:
         self.emails = SqlEmailRepository(self._session, self._tables)
         self.poll_state = SqlPollStateRepository(self._session, self._tables)
         self.outgoing = SqlOutgoingRepository(self._session, self._tables)
+        self.dsr_messages = SqlDsrMessageRepository(self._session, self._tables)
         self._recorder = _Recorder()
         self.events = self._recorder
         return self

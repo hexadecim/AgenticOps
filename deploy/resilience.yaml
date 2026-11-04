@@ -48,6 +48,8 @@ dependencies:
     timeout: 10
   reporting-service:
     timeout: 10
+  reporting-service:
+    timeout: 10
   redis:
     timeout: 2
     breaker: { fail_max: 3, reset_timeout: 15 }

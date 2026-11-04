@@ -1,5 +1,6 @@
 """mail-service use cases."""
 
+from .dsr import QueueDsrMessage, SendDsrMessages
 from .mailbox import ActiveMailbox, ApplyMailboxSettings
 from .polling import Outcome, PollMailbox, PollResult
 from .queries import GetEmail, GetMailboxStatus
@@ -15,7 +16,9 @@ __all__ = [
     "PollMailbox",
     "PollResult",
     "PurgeExpiredEmails",
+    "QueueDsrMessage",
     "QueueMessage",
     "RecordMessageApproval",
+    "SendDsrMessages",
     "SendDueMessages",
 ]

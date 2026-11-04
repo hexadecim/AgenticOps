@@ -16,6 +16,7 @@ from .adapters.inbound.worker import JobWorker
 from .adapters.outbound.jira_cloud import JiraCloudTracker
 from .adapters.outbound.settings_http import SettingsServiceSource
 from .adapters.outbound.sql import JiraTables, SqlUnitOfWork
+from .adapters.outbound.subject import SqlJiraSubjectStore
 from .application import ActiveTracker, GetContext, ProcessDueJobs, QueueJob, StoreProposal
 from .config import Settings
 from .domain.model import JiraSettings
@@ -43,6 +44,8 @@ class Container:
     get_context: GetContext
     worker: JobWorker
     require_service: Callable[..., Awaitable[str]] = field(repr=False)
+    require_privacy: Callable[..., Awaitable[str]] = field(repr=False)
+    subject_store: SqlJiraSubjectStore = field(repr=False)
     closers: list = field(default_factory=list)  # type: ignore[type-arg]
 
 
@@ -103,5 +106,7 @@ def build_container(
         get_context=GetContext(active),
         worker=JobWorker(process),
         require_service=service_dependency(ServiceTokenVerifier(settings.jwt_secret), "agent-orchestrator"),
+        require_privacy=service_dependency(ServiceTokenVerifier(settings.jwt_secret), "privacy-service"),
+        subject_store=SqlJiraSubjectStore(sessions, tables),
         closers=closers,
     )

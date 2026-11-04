@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { Link, NavLink, useLocation } from "react-router-dom";
 import { mailApi } from "../api/mail";
+import { privacyApi } from "../api/privacy";
 import { roleLabel } from "../api/types";
 import { useSession } from "../auth/session";
 import { Icon, type IconName } from "./Icon";
@@ -20,7 +21,7 @@ const NAV: NavItem[] = [
   { to: "/approvals", label: "Approvals", icon: "approvals" },
   { to: "/dashboard", label: "Dashboard", icon: "dashboard" },
   { to: "/audit", label: "Audit log", icon: "audit" },
-  { to: "/privacy", label: "Privacy and data requests", icon: "shield", soon: "M8" },
+  { to: "/privacy", label: "Privacy and data requests", icon: "shield" },
   { to: "/admin/users", label: "Users and roles", icon: "users", adminOnly: true },
   { to: "/admin/integrations", label: "Integrations", icon: "key", adminOnly: true },
   { to: "/admin/system", label: "System health", icon: "refresh", adminOnly: true },
@@ -55,6 +56,13 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
   const { user, signOut, idleWarning, stayActive } = useSession();
   const [open, setOpen] = useState(false);
   const location = useLocation();
+  const openRequests = useQuery({
+    queryKey: ["dsr"],
+    queryFn: privacyApi.list,
+    enabled: Boolean(user?.roles.includes("compliance_lead")),
+    refetchInterval: 60_000,
+    retry: false,
+  }).data?.open;
 
   useEffect(() => setOpen(false), [location.pathname]);
   useEffect(() => {
@@ -97,6 +105,7 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
             <Icon name={n.icon} />
             {n.label}
             {n.soon && <span className="soon">{n.soon}</span>}
+            {n.to === "/privacy" && openRequests ? <span className="soon mono">{openRequests}</span> : null}
           </NavLink>
         ))}
         <div className="grow" />
@@ -115,7 +124,7 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
           <Icon name="signOut" />Sign out
         </button>
         <div className="drawer-links">
-          <a href="#privacy">Privacy notice</a><a href="#imprint">Imprint</a><a href="#a11y">Accessibility statement</a>
+          <Link to="/legal/privacy">Privacy notice</Link><Link to="/legal/imprint">Imprint</Link><Link to="/legal/accessibility">Accessibility statement</Link>
         </div>
       </nav>
 

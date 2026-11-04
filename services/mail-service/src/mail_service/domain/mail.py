@@ -70,12 +70,20 @@ class StoredEmail:
 
 
 @dataclass(frozen=True, slots=True)
+class OutgoingAttachment:
+    filename: str
+    content: str = field(repr=False)
+    content_type: str = "application/json"
+
+
+@dataclass(frozen=True, slots=True)
 class OutgoingMail:
     to: tuple[Address, ...]
     subject: str
     body_text: str
     in_reply_to: str | None = None
     references: tuple[str, ...] = ()
+    attachments: tuple[OutgoingAttachment, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

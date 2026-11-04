@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from opspilot_common.events import EventRuntime, Inbox
 from opspilot_common.logging import configure_logging
+from opspilot_common.subjects_http import ERASURE_BINDINGS, erasure_handler, subject_router
 from opspilot_common.web import CorrelationIdMiddleware, health_routes
 
 from .adapters.inbound.events import MESSAGE_BINDINGS, on_message_event, on_settings_changed
@@ -34,12 +35,22 @@ def create_app(
             handler = on_settings_changed(container.apply_settings, container.scheduler.wake)
             runtime.add_consumer("settings", ["settings.changed"], inbox.guard(container.sessions, handler))
             messages = on_message_event(
-                container.queue_message, container.record_message_approval, container.scheduler.wake_sender
+                container.queue_message,
+                container.record_message_approval,
+                container.scheduler.wake_sender,
+                container.queue_dsr,
             )
             runtime.add_consumer(
                 "messages",
                 MESSAGE_BINDINGS,
                 Inbox(container.tables.inbox, f"{SERVICE}.messages").guard(container.sessions, messages),
+            )
+            runtime.add_consumer(
+                "subjects",
+                ERASURE_BINDINGS,
+                Inbox(container.tables.inbox, f"{SERVICE}.subjects").guard(
+                    container.sessions, erasure_handler(container.subject_store)
+                ),
             )
             await runtime.start()
         scheduling = with_scheduler and container.settings.poller_enabled
@@ -59,5 +70,6 @@ def create_app(
     install_error_handlers(app)
     app.include_router(build_router(container))
     app.include_router(build_internal_router(container))
+    app.include_router(subject_router(container.subject_store, container.require_reader_service))
     app.include_router(health_routes(container.registry))
     return app

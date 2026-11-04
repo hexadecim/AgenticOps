@@ -240,6 +240,39 @@ def build_router(
     async def reveal_identity(token: Token, body: dict[str, Any]) -> dict[str, Any]:
         return await privacy.reveal(token, body)
 
+    # --- data requests (privacy-service checks the role and records every step) -------------------------
+    @router.get("/privacy/requests", tags=["privacy"])
+    async def data_requests(token: Token) -> dict[str, Any]:
+        return await privacy.data_requests(token)
+
+    @router.post("/privacy/requests", status_code=201, tags=["privacy"])
+    async def log_data_request(token: Token, body: dict[str, Any]) -> dict[str, Any]:
+        return await privacy.log_data_request(token, body)
+
+    @router.get("/privacy/requests/{dsr_id}", tags=["privacy"])
+    async def data_request(token: Token, dsr_id: str) -> dict[str, Any]:
+        return await privacy.data_request(token, dsr_id)
+
+    @router.post("/privacy/requests/{dsr_id}/verify", tags=["privacy"])
+    async def verify_data_request(token: Token, dsr_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        return await privacy.data_request_step(token, dsr_id, "verify", body)
+
+    @router.post("/privacy/requests/{dsr_id}/close", tags=["privacy"])
+    async def close_data_request(token: Token, dsr_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        return await privacy.data_request_step(token, dsr_id, "close", body)
+
+    @router.post("/privacy/requests/{dsr_id}/export", tags=["privacy"])
+    async def export_data_request(token: Token, dsr_id: str) -> dict[str, Any]:
+        return await privacy.data_request_step(token, dsr_id, "export", None)
+
+    @router.post("/privacy/requests/{dsr_id}/erase", tags=["privacy"])
+    async def erase_data_request(token: Token, dsr_id: str) -> dict[str, Any]:
+        return await privacy.data_request_step(token, dsr_id, "erase", None)
+
+    @router.post("/privacy/requests/{dsr_id}/retry", tags=["privacy"])
+    async def retry_data_request(token: Token, dsr_id: str) -> dict[str, Any]:
+        return await privacy.data_request_step(token, dsr_id, "retry", None)
+
     # --- approvals and runs (the services check roles per gate) ----------------------------------------
     @router.get("/approvals", tags=["approvals"])
     async def approval_queue(token: Token, decided: bool = False, gate: str | None = None) -> dict[str, Any]:

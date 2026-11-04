@@ -1,0 +1,30 @@
+/* Privacy and data requests; layout follows the wireframe (Privacy). */
+.privacy-chips { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; max-width: 520px; }
+.privacy-chip { font-size: 13px; padding: 6px 10px; border-radius: 8px; background: var(--surface); border: 1px solid var(--line); color: var(--ink-2); }
+.privacy-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 20px; align-items: start; }
+.privacy-side { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.privacy-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.privacy-card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 20px 10px; }
+.privacy-card-head h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.dsr-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; width: 100%; padding: 12px 20px; border: 0; border-top: 1px solid var(--line-soft); background: var(--surface); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.dsr-row:hover, .dsr-row[aria-pressed="true"] { background: var(--row-hover); }
+.dsr-due { justify-self: end; font-size: 13px; color: var(--ink-2); }
+.dsr-due.soon { color: var(--warn); }
+.dsr-due.late { color: var(--crit); font-weight: 600; }
+.dsr-due.closed { color: var(--muted); }
+.retention-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 7px 20px; border-top: 1px solid var(--line-soft); font-size: 14px; }
+.retention-row span:last-child { color: var(--ink-2); text-align: right; }
+.dsr-detail-head { padding: 18px 24px 14px; border-bottom: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 6px; }
+.dsr-detail-head h2 { margin: 0; font-size: 20px; font-weight: 600; }
+.section-label { padding: 14px 24px 8px; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.store-row { display: grid; grid-template-columns: minmax(0, 1fr) 70px 170px; gap: 16px; align-items: center; min-height: 40px; padding: 4px 24px; border-top: 1px solid var(--line-soft); font-size: 14px; }
+.store-count { font-family: "IBM Plex Mono", monospace; font-size: 13px; text-align: right; }
+.dsr-footer { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; min-height: 72px; padding: 12px 24px; border-top: 1px solid var(--line); }
+.dsr-form { display: flex; flex-direction: column; gap: 10px; padding: 12px 20px 16px; border-top: 1px solid var(--line-soft); }
+.dsr-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-2); }
+.dsr-note { flex: 1 1 280px; min-width: 0; }
+@media (max-width: 1000px) {
+  .privacy-grid { grid-template-columns: minmax(0, 1fr); }
+  .store-row { grid-template-columns: minmax(0, 1fr) 50px; }
+  .store-row > :last-child { grid-column: 1 / -1; }
+}

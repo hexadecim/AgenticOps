@@ -6,7 +6,8 @@ import { AppShell } from "./components/AppShell";
 import { IntegrationsPage } from "./pages/admin/IntegrationsPage";
 import { SystemHealthPage } from "./pages/admin/SystemHealthPage";
 import { UsersPage } from "./pages/admin/UsersPage";
-import { ComingSoon } from "./pages/ComingSoon";
+import { LegalPage } from "./pages/legal/LegalPage";
+import { PrivacyPage } from "./pages/privacy/PrivacyPage";
 import { ApprovalsPage } from "./pages/approvals/ApprovalsPage";
 import { AuditPage } from "./pages/audit/AuditPage";
 import { DashboardPage } from "./pages/dashboard/DashboardPage";
@@ -38,9 +39,8 @@ export function App() {
       <Route path="/approvals/:id" element={<Protected title="Approvals" shell={false}><ApprovalPage /></Protected>} />
       <Route path="/dashboard" element={<Protected title="Dashboard"><DashboardPage /></Protected>} />
       <Route path="/audit" element={<Protected title="Audit log"><AuditPage /></Protected>} />
-      <Route path="/privacy" element={<Protected title="Privacy and data requests"><ComingSoon title="Privacy and data requests" icon="shield" milestone="milestone 8"
-        lead="Requests under GDPR Articles 15 to 21."
-        items={["Access, rectification and erasure requests", "Where a person's data is held", "Retention schedule"]} /></Protected>} />
+      <Route path="/privacy" element={<Protected title="Privacy and data requests"><PrivacyPage /></Protected>} />
+      <Route path="/legal/:page" element={<LegalPage />} />
       <Route path="/admin/users" element={<Protected title="Users and roles" role="admin"><UsersPage /></Protected>} />
       <Route path="/admin/integrations" element={<Protected title="Integrations" role="admin"><IntegrationsPage /></Protected>} />
       <Route path="/admin/system" element={<Protected title="System health" role="admin"><SystemHealthPage /></Protected>} />

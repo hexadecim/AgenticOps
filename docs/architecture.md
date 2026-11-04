@@ -148,7 +148,7 @@ These follow the wireframe tokens and layout: IBM Plex, light/dark/auto themes, 
 - **ApproveMessage**: the draft (editable), recipient tokens, draft checks, send-back.
 - **Dashboard**: platform health, open tickets by stage, outage timeline, SLAs, plus a dependency-health panel showing breaker states.
 - **Audit**: tabs All / People / Agents and tools / Privacy, plus search.
-- **Privacy**: the DSR list, the stores holding a person's data, export, erasure, retention schedule.
+- **Privacy**: the DSR list, the stores holding a person's data, export, erasure, retention schedule (compliance lead only; design in [ADR-0008](adr/0008-data-requests-and-retention.md)). Privacy notice, imprint and accessibility statement are public pages at `/legal/*`.
 - **Admin**
 
 Roles: L1 Analyst, Support agent, Support manager, Compliance lead, Admin.

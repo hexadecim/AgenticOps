@@ -47,3 +47,28 @@ class NotAllowedError(PrivacyError):
 
 class InvalidRequestError(PrivacyError):
     code = "invalid_request"
+
+
+class RequestNotFoundError(PrivacyError):
+    code = "dsr_not_found"
+
+    def __init__(self, dsr_id: str) -> None:
+        super().__init__(f"There is no data request {dsr_id}.")
+
+
+class StoresUnavailableError(PrivacyError):
+    """A store could not answer: an export or erasure would be incomplete, so it does not start."""
+
+    code = "stores_unavailable"
+
+    def __init__(self, stores: list[str]) -> None:
+        super().__init__(
+            f"Not available right now: {', '.join(stores)}. Nothing was changed. Try again shortly."
+        )
+
+
+class SubjectBusyError(PrivacyError):
+    code = "subject_busy"
+
+    def __init__(self, runs: int) -> None:
+        super().__init__(f"{runs} agent run(s) for this person are in progress. Try again in a few minutes.")

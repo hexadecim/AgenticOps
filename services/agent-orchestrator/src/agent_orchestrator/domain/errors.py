@@ -40,3 +40,7 @@ class DiagnosisUnusableError(AgentError):
 
 class DraftUnusableError(AgentError):
     """The model's draft could not be read even after a retry: Comms falls back to a labelled template."""
+
+
+class RunInProgressError(Exception):
+    """A run is being worked on at this moment: its data cannot be erased until the step ends."""

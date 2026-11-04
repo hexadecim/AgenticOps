@@ -7,9 +7,9 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from opspilot_common.auth import Principal, ServiceTokenIssuer, TokenVerifier
+from opspilot_common.auth import Principal, ServiceTokenIssuer, ServiceTokenVerifier, TokenVerifier
 from opspilot_common.resilience import ResilienceRegistry, ResilientHttpClient, redis_registry
-from opspilot_common.web import principal_dependency
+from opspilot_common.web import principal_dependency, service_dependency
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
@@ -24,6 +24,7 @@ from .adapters.outbound.llm import (
 )
 from .adapters.outbound.services_http import JiraContextClient, OpsClient, PrivacyClient
 from .adapters.outbound.sql import OrchestratorTables, SqlEventSink, SqlThreadTickets, SqlUnitOfWork
+from .adapters.outbound.subject import SqlRunSubjectStore
 from .application import (
     AdvanceRuns,
     RecordDecision,
@@ -62,7 +63,9 @@ class Container:
     record_fix: RecordFixResult
     record_message: RecordMessageResult
     run_summary: RunSummary
+    subject_store: SqlRunSubjectStore
     current_user: Callable[..., Awaitable[Principal]] = field(repr=False)
+    require_privacy: Callable[..., Awaitable[str]] = field(repr=False)
     closers: list = field(default_factory=list)  # type: ignore[type-arg]
 
     def uow(self) -> UnitOfWork:
@@ -132,6 +135,8 @@ def build_container(
         record_fix=RecordFixResult(uow, clock),
         record_message=RecordMessageResult(uow, clock),
         run_summary=RunSummary(uow, clock),
+        subject_store=SqlRunSubjectStore(sessions, tables),
         current_user=principal_dependency(TokenVerifier(settings.jwt_secret)),
+        require_privacy=service_dependency(ServiceTokenVerifier(settings.jwt_secret), "privacy-service"),
         closers=closers,
     )

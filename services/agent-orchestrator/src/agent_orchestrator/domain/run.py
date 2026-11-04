@@ -42,6 +42,14 @@ ACTIONABLE = frozenset(
         RunStatus.WAITING_OPS,
     }
 )
+# Not finished: their people still need the vault (a reply may yet go out). Retention must not touch them.
+OPEN_STATUSES = ACTIONABLE | {
+    RunStatus.RUNNING,
+    RunStatus.WAITING_APPROVAL,
+    RunStatus.APPROVED,
+    RunStatus.FIX_APPROVED,
+    RunStatus.MESSAGE_APPROVED,
+}
 # Where the graph waits for another service's result, and the status the run shows meanwhile.
 AWAITS = {
     "ticket": ("await_ticket", RunStatus.APPROVED),

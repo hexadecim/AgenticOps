@@ -232,6 +232,29 @@ def _privacy(p: c.PrivacyRecorded, e: EventEnvelope) -> Description:
     return Description(Kind.PRIVACY, actor, p.action, p.detail, record, thread_id=p.thread_id)
 
 
+def _erasure_requested(p: c.SubjectErasureRequested, _: EventEnvelope) -> Description:
+    detail = f"{p.dsr_id}: erase {len(p.tokens)} tokens, {len(p.own_email_ids)} emails, {len(p.run_ids)} runs"
+    return Description(Kind.PRIVACY, role_label(p.decided_by_role), "dsr_erasure", detail, "Art. 17 GDPR")
+
+
+def _store_erased(p: c.SubjectStoreErased, _: EventEnvelope) -> Description:
+    detail = f"{p.dsr_id}: {p.store} removed {p.count} rows" + (f". {p.detail}" if p.detail else "")
+    return Description(Kind.PRIVACY, "Privacy service", "dsr_store_erased", detail, "Art. 17 GDPR")
+
+
+def _dsr_send(p: c.DsrSendRequested, _: EventEnvelope) -> Description:
+    what = "data export" if p.kind == "export" else "erasure confirmation"
+    detail = f"{p.dsr_id}: send {what} to the verified address (attempt {p.attempt})"
+    return Description(Kind.PRIVACY, role_label(p.decided_by_role), "dsr_send", detail, "Art. 12 GDPR")
+
+
+def _dsr_result(p: c.DsrMessageResult, _: EventEnvelope) -> Description:
+    outcome = "sent" if p.sent else f"not sent: {p.detail or 'unknown'}"
+    return Description(
+        Kind.PRIVACY, "Mail service", "dsr_message", f"{p.dsr_id}: {p.kind} {outcome}", "Art. 12 GDPR"
+    )
+
+
 def _settings(p: c.SettingsChanged, e: EventEnvelope) -> Description:
     fields = ", ".join(p.changed_fields) or "no fields"
     return Description(
@@ -296,6 +319,10 @@ DESCRIBERS: dict[str, _Describer] = {
     c.EventType.PROBE_STATUS: _probe,  # type: ignore[dict-item]
     c.EventType.ACTION_EXECUTED: _action,  # type: ignore[dict-item]
     c.EventType.PRIVACY_RECORDED: _privacy,  # type: ignore[dict-item]
+    c.EventType.SUBJECT_ERASURE_REQUESTED: _erasure_requested,  # type: ignore[dict-item]
+    c.EventType.SUBJECT_STORE_ERASED: _store_erased,  # type: ignore[dict-item]
+    c.EventType.DSR_SEND_REQUESTED: _dsr_send,  # type: ignore[dict-item]
+    c.EventType.DSR_MESSAGE_RESULT: _dsr_result,  # type: ignore[dict-item]
     c.EventType.SETTINGS_CHANGED: _settings,  # type: ignore[dict-item]
     c.EventType.USER_ACTIVITY: _user,  # type: ignore[dict-item]
     c.EventType.BREAKER_STATE_CHANGED: _breaker,  # type: ignore[dict-item]
