@@ -8,6 +8,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 from opspilot_common.auth import Principal
+from opspilot_common.drafts import checks_json
 from opspilot_common.events.catalogue import Decision, Gate
 from pydantic import BaseModel, Field
 
@@ -21,6 +22,10 @@ from ...domain.errors import (
 )
 
 APPROVER_LABEL = {Gate.TICKET: "Analyst", Gate.FIX: "Support agent", Gate.MESSAGE: "Analyst"}
+
+
+class CheckBody(BaseModel):
+    edits: dict[str, Any] = Field(default_factory=dict)
 
 
 class DecisionBody(BaseModel):
@@ -94,6 +99,10 @@ def build_router(container: Any) -> APIRouter:
     @router.get("/approvals/{approval_id}")
     async def one(approval_id: str, principal: SignedIn) -> dict[str, Any]:
         return detail_json(await container.get_approval(principal, approval_id))
+
+    @router.post("/approvals/{approval_id}/checks")
+    async def checks(approval_id: str, body: CheckBody, principal: SignedIn) -> dict[str, Any]:
+        return {"checks": checks_json(await container.check_draft(principal, approval_id, body.edits))}
 
     @router.post("/approvals/{approval_id}/decision")
     async def decide(approval_id: str, body: DecisionBody, principal: SignedIn) -> dict[str, Any]:

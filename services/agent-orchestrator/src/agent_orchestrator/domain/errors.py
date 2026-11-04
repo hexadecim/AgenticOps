@@ -36,3 +36,7 @@ class OpsUnavailableError(AgentError):
 
 class DiagnosisUnusableError(AgentError):
     """The model's fix choice could not be read even after a retry: the run ends without a proposal."""
+
+
+class DraftUnusableError(AgentError):
+    """The model's draft could not be read even after a retry: Comms falls back to a labelled template."""

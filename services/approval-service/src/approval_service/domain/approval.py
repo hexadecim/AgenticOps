@@ -9,6 +9,7 @@ from typing import Any
 
 from opspilot_common.auth.principal import Principal
 from opspilot_common.auth.roles import GATE_APPROVERS, Role, can_decide
+from opspilot_common.drafts import MAX_REVISIONS, Check, blocking, check_draft
 from opspilot_common.events.catalogue import Decision, Gate
 
 from .errors import AlreadyDecidedError, InvalidDecisionError, NotAllowedError
@@ -16,6 +17,7 @@ from .errors import AlreadyDecidedError, InvalidDecisionError, NotAllowedError
 # Who may see the queue (deciding is per gate, GATE_APPROVERS). Admins run the system, not cases.
 VIEWERS = frozenset({Role.L1_ANALYST, Role.SUPPORT_AGENT, Role.SUPPORT_MANAGER, Role.COMPLIANCE_LEAD})
 SEVERITIES = ("sev1", "sev2", "sev3", "sev4")
+MAX_BODY = 8000
 # What an approver may change before approving, per gate.
 EDITABLE: dict[Gate, frozenset[str]] = {
     Gate.TICKET: frozenset({"summary", "severity"}),
@@ -52,6 +54,10 @@ class Outcome(StrEnum):
     FIX_PENDING = "fix_pending"  # approved; ops-service is running it
     FIX_DONE = "fix_done"
     FIX_FAILED = "fix_failed"  # refused at run time or failed: nothing (more) happens without a person
+    MESSAGE_PENDING = "message_pending"  # approved; mail-service is sending it
+    MESSAGE_SENT = "message_sent"
+    MESSAGE_PARTLY_SENT = "message_partly_sent"  # some recipients could not be reached
+    MESSAGE_FAILED = "message_failed"  # reached nobody: a person has to act
 
 
 @dataclass(slots=True)
@@ -98,10 +104,22 @@ class Approval:
             raise AlreadyDecidedError(self.status.value)
         if decision is Decision.SEND_BACK and self.gate is not Gate.MESSAGE:
             raise InvalidDecisionError("Only customer messages can be sent back for revision.")
+        if decision is Decision.SEND_BACK and int(self.proposal.get("revision") or 0) >= MAX_REVISIONS:
+            raise InvalidDecisionError(
+                f"All {MAX_REVISIONS} revisions are used: edit the draft yourself, or choose not to send it."
+            )
         reason = " ".join((reason or "").split()) or None
         if decision is not Decision.APPROVE and not reason:
             raise InvalidDecisionError("Say why, so the team and the audit log know.")
         clean = self._valid_edits(edits) if decision is Decision.APPROVE else {}
+        failing = (
+            blocking(self.message_checks(clean))
+            if decision is Decision.APPROVE and self.gate is Gate.MESSAGE
+            else []
+        )
+        if failing:
+            names = "; ".join(f"{c.label}: {c.detail}" for c in failing)
+            raise InvalidDecisionError(f"This message cannot be sent yet. {names}.")
         self.status, self.decided_at, self.decided_by = _RESULT[decision], now, principal.user_id
         self.decided_by_role = sorted(principal.roles & GATE_APPROVERS[self.gate])[0].value
         self.reason, self.edits = reason, clean
@@ -111,7 +129,19 @@ class Approval:
             self.outcome = Outcome.TICKET_PENDING
         if decision is Decision.APPROVE and self.gate is Gate.FIX:
             self.outcome = Outcome.FIX_PENDING
+        if decision is Decision.APPROVE and self.gate is Gate.MESSAGE:
+            self.outcome = Outcome.MESSAGE_PENDING
         return True
+
+    def message_checks(self, edits: dict[str, Any]) -> list[Check]:
+        """The draft checks on the text as it would go out, with the approver's edits applied."""
+        if self.gate is not Gate.MESSAGE:
+            raise InvalidDecisionError("Only customer messages have draft checks.")
+        subject, body = str(self.proposal.get("subject") or ""), str(self.proposal.get("body") or "")
+        new_subject = str(edits.get("subject") or subject)
+        new_body = str(edits.get("body") or body)
+        context = self.proposal.get("check_context") or {}
+        return check_draft(new_subject, new_body, context, edited=new_body != body or new_subject != subject)
 
     @property
     def next_reminder_at(self) -> datetime | None:
@@ -139,6 +169,12 @@ class Approval:
             raise InvalidDecisionError("Severity must be sev1, sev2, sev3 or sev4.")
         if "summary" in edits and not 3 <= len(str(edits["summary"]).strip()) <= 240:
             raise InvalidDecisionError("The summary must be 3 to 240 characters.")
+        if "subject" in edits and not 3 <= len(str(edits["subject"]).strip()) <= 240:
+            raise InvalidDecisionError("The subject must be 3 to 240 characters.")
+        if "subject" in edits and any(ch in str(edits["subject"]) for ch in "\r\n"):
+            raise InvalidDecisionError("The subject must be one line.")
+        if "body" in edits and not 20 <= len(str(edits["body"]).strip()) <= MAX_BODY:
+            raise InvalidDecisionError(f"The message must be 20 to {MAX_BODY} characters.")
         if "params" in edits:
             edits = {**edits, "params": self._valid_params(edits["params"])}
         return {k: (v.strip() if isinstance(v, str) else v) for k, v in edits.items()}
@@ -175,9 +211,17 @@ class Approval:
     def fix_executed(self, ok: bool, detail: str) -> None:
         self.outcome, self.outcome_detail = (Outcome.FIX_DONE if ok else Outcome.FIX_FAILED), detail
 
+    def message_result(self, sent: list[str], failed: list[str], detail: str | None) -> None:
+        if not sent:
+            self.outcome = Outcome.MESSAGE_FAILED
+        else:
+            self.outcome = Outcome.MESSAGE_PARTLY_SENT if failed else Outcome.MESSAGE_SENT
+        self.outcome_detail = detail
+
     def health_checked(self, resolved: bool, detail: str | None) -> bool:
-        """The orchestrator's health re-check after an approved fix. Only an approved T2 gate takes it."""
-        if self.gate is not Gate.FIX or self.status is not Status.APPROVED:
+        """The orchestrator's health re-check after an approved fix. Only an approved T2 gate takes it, once:
+        the run announces its outcome again when it ends, after the customer message."""
+        if self.gate is not Gate.FIX or self.status is not Status.APPROVED or self.health:
             return False
         self.health, self.health_detail = ("resolved" if resolved else "fix_failed"), detail
         return True

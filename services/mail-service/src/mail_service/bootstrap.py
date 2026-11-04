@@ -13,6 +13,7 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from .adapters.inbound.scheduler import Scheduler
+from .adapters.outbound.privacy_http import PrivacyDetokeniser
 from .adapters.outbound.providers import DEPENDENCY, default_registry
 from .adapters.outbound.settings_http import SettingsServiceSource
 from .adapters.outbound.sql import MailTables, SqlUnitOfWork
@@ -24,9 +25,12 @@ from .application import (
     GetMailboxStatus,
     PollMailbox,
     PurgeExpiredEmails,
+    QueueMessage,
+    RecordMessageApproval,
+    SendDueMessages,
 )
 from .config import Settings
-from .ports import Clock, MailboxBuilder, SettingsSource, UnitOfWork
+from .ports import Clock, Detokeniser, MailboxBuilder, SettingsSource, UnitOfWork
 
 SERVICE = "mail-service"
 # The only service that may read raw (not yet pseudonymised) email content. Everyone else, the agents
@@ -47,6 +51,9 @@ class Container:
     purge: PurgeExpiredEmails
     get_status: GetMailboxStatus
     get_email: GetEmail
+    queue_message: QueueMessage
+    record_message_approval: RecordMessageApproval
+    send_due: SendDueMessages
     scheduler: Scheduler
     current_user: Callable[..., Awaitable[Principal]] = field(repr=False)
     require_admin: Callable[..., Awaitable[Principal]] = field(repr=False)
@@ -63,6 +70,7 @@ def build_container(
     source: SettingsSource | None = None,
     builder: MailboxBuilder | None = None,
     clock: Clock | None = None,
+    privacy: Detokeniser | None = None,
 ) -> Container:
     engine = engine or create_async_engine(settings.database_url, pool_pre_ping=True)
     tables = MailTables(schema=settings.db_schema if schema is None else schema or None)
@@ -74,10 +82,17 @@ def build_container(
     redis = redis or Redis.from_url(settings.redis_url)
     registry = redis_registry(redis, settings.resilience_config)
     closers: list = [redis.aclose]  # type: ignore[type-arg]
+    tokens = ServiceTokenIssuer(settings.jwt_secret, SERVICE)
     if source is None:
         http = ResilientHttpClient.from_registry(registry, "settings-service", base_url=settings.settings_url)
         closers.append(http.aclose)
-        source = SettingsServiceSource(http, ServiceTokenIssuer(settings.jwt_secret, SERVICE))
+        source = SettingsServiceSource(http, tokens)
+    if privacy is None:
+        privacy_http = ResilientHttpClient.from_registry(
+            registry, "privacy-service", base_url=settings.privacy_url
+        )
+        closers.append(privacy_http.aclose)
+        privacy = PrivacyDetokeniser(privacy_http, tokens)
     clock = clock or SystemClock()
     active = ActiveMailbox()
     apply_settings = ApplyMailboxSettings(active, source, builder or default_registry(registry))
@@ -90,6 +105,7 @@ def build_container(
         initial_lookback=timedelta(hours=settings.initial_lookback_hours),
     )
     purge = PurgeExpiredEmails(uow, clock, days=settings.retention_days)
+    send_due = SendDueMessages(uow, active, privacy, clock)
     current = principal_dependency(TokenVerifier(settings.jwt_secret))
 
     async def close_mailbox() -> None:
@@ -109,7 +125,10 @@ def build_container(
         purge=purge,
         get_status=GetMailboxStatus(uow, active, BreakerProbe(registry.get(DEPENDENCY)), clock),
         get_email=GetEmail(uow),
-        scheduler=Scheduler(poll, purge, active),
+        queue_message=QueueMessage(uow, clock),
+        record_message_approval=RecordMessageApproval(uow, clock),
+        send_due=send_due,
+        scheduler=Scheduler(poll, purge, active, send_due),
         current_user=current,
         require_admin=require_roles(current, Role.ADMIN),
         require_reader_service=service_dependency(

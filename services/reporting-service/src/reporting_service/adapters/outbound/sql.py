@@ -72,6 +72,8 @@ class ReportingTables:
             Column("severity", String(8), nullable=True),
             Column("site", String(80), nullable=True),
             Column("paused", Boolean, nullable=False),
+            Column("verdict", String(20), nullable=True),
+            Column("verdict_at", DateTime(timezone=True), nullable=True),
         )
         self.emails = Table(
             "emails",
@@ -128,6 +130,8 @@ def _case(r: Any) -> Case:
         severity=r.severity,
         site=r.site,
         paused=r.paused,
+        verdict=r.verdict,
+        verdict_at=_aware(r.verdict_at),
         **{name: _aware(getattr(r, name)) for name in _CASE_TIMES},
     )
 
@@ -144,6 +148,8 @@ def _case_row(c: Case) -> dict[str, Any]:
         "severity": c.severity,
         "site": c.site,
         "paused": c.paused,
+        "verdict": c.verdict,
+        "verdict_at": c.verdict_at,
         **{name: getattr(c, name) for name in _CASE_TIMES},
     }
 
@@ -166,6 +172,11 @@ class SqlCaseStore:
     async def by_email(self, email_id: str) -> list[Case]:
         return [
             _case(r) for r in await self._s.execute(select(self._t).where(self._t.c.email_id == email_id))
+        ]
+
+    async def by_thread(self, thread_id: str) -> list[Case]:
+        return [
+            _case(r) for r in await self._s.execute(select(self._t).where(self._t.c.thread_id == thread_id))
         ]
 
     async def by_ticket(self, jira_key: str) -> list[Case]:

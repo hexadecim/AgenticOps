@@ -14,11 +14,13 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async
 
 from .adapters.outbound.sql import ApprovalTables, SqlUnitOfWork
 from .application import (
+    CheckDraft,
     Decide,
     GetApproval,
     ListApprovals,
     RecordFixHealth,
     RecordFixOutcome,
+    RecordMessageOutcome,
     RecordRequest,
     RecordTicketOutcome,
     SendReminders,
@@ -45,6 +47,8 @@ class Container:
     record_outcome: RecordTicketOutcome
     record_fix: RecordFixOutcome
     record_health: RecordFixHealth
+    record_message: RecordMessageOutcome
+    check_draft: CheckDraft
     send_reminders: SendReminders
     decide: Decide
     list_approvals: ListApprovals
@@ -80,6 +84,8 @@ def build_container(
         record_outcome=RecordTicketOutcome(uow),
         record_fix=RecordFixOutcome(uow),
         record_health=RecordFixHealth(uow),
+        record_message=RecordMessageOutcome(uow),
+        check_draft=CheckDraft(uow),
         send_reminders=SendReminders(uow, clock),
         decide=Decide(uow, clock),
         list_approvals=ListApprovals(uow, clock),

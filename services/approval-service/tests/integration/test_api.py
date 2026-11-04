@@ -12,8 +12,9 @@ from approval_service.bootstrap import Container, build_container
 from approval_service.config import Settings
 from approval_service.main import create_app
 from opspilot_common.auth import Principal, Role, TokenIssuer
+from opspilot_common.drafts import AI_DISCLOSURE
 from opspilot_common.events import EventEnvelope, Inbox
-from opspilot_common.events.catalogue import ApprovalRequested, Gate, JiraIssueCreated
+from opspilot_common.events.catalogue import ApprovalRequested, Gate, JiraIssueCreated, MessageSent
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -68,7 +69,11 @@ async def api() -> AsyncIterator[tuple[httpx.AsyncClient, Container, object]]:
     handler = Inbox(container.tables.inbox, "approval-service.events").guard(
         container.sessions,
         on_event(
-            container.record_request, container.record_outcome, container.record_fix, container.record_health
+            container.record_request,
+            container.record_outcome,
+            container.record_fix,
+            container.record_health,
+            container.record_message,
         ),
     )
     app = create_app(container, with_events=False, with_reminders=False)
@@ -199,3 +204,55 @@ async def test_fix_gate_reminder_and_outcome(api) -> None:  # type: ignore[no-un
     await handler(run_status("resolved"))
     item = (await client.get("/v1/approvals/a-7", headers=user(Role.SUPPORT_AGENT))).json()
     assert item["health"] == "resolved" and item["health_detail"] == "All 5 probes pass"
+
+
+def message_request(revision: int = 0) -> EventEnvelope:
+    return EventEnvelope.wrap(
+        ApprovalRequested(
+            approval_id="m-1", run_id="r-1", thread_id="t-1", gate=Gate.MESSAGE,
+            title="Resolution update for KAN-12", detail="Comms", jira_key="KAN-12",
+            proposal={
+                "subject": "Re: Upload stuck [KAN-12]",
+                "body": f"Hello [RECIPIENT_NAME],\n\nFixed.\n\nReference: KAN-12\n\n{AI_DISCLOSURE}",
+                "revision": revision,
+                "check_context": {
+                    "jira_key": "KAN-12", "facts": "", "recipients": ["PERSON_1"], "linked": ["PERSON_1"],
+                },
+            },
+        ),
+        source="agent-orchestrator",
+    )  # fmt: skip
+
+
+async def test_message_gate_checks_edits_refuses_bad_text_and_records_the_send(api) -> None:  # type: ignore[no-untyped-def]
+    client, _, handler = api
+    await handler(message_request())
+    analyst = user(Role.L1_ANALYST)
+
+    r = await client.post("/v1/approvals/m-1/checks", json={"edits": {}}, headers=analyst)
+    assert r.status_code == 200 and all(c["ok"] for c in r.json()["checks"])
+    body = {"edits": {"body": "Hello,\n\nIt will be fixed soon, ask [PERSON_2]."}}
+    checks = (await client.post("/v1/approvals/m-1/checks", json=body, headers=analyst)).json()["checks"]
+    assert {c["id"] for c in checks if not c["ok"]} == {"promises", "personal_data", "disclosure"}
+
+    refused = await client.post(
+        "/v1/approvals/m-1/decision", json={"decision": "approve", **body}, headers=analyst
+    )
+    assert refused.status_code == 422 and "cannot be sent yet" in refused.json()["message"]
+    assert (await client.get("/v1/approvals/m-1", headers=analyst)).json()["status"] == "pending"
+
+    r = await client.post("/v1/approvals/m-1/decision", json={"decision": "approve"}, headers=analyst)
+    assert r.status_code == 200 and r.json()["outcome"] == "message_pending"
+    await handler(
+        EventEnvelope.wrap(
+            MessageSent(
+                message_id="x",
+                thread_id="t-1",
+                recipient_tokens=["PERSON_1"],
+                approval_id="m-1",
+                run_id="r-1",
+            ),
+            source="mail-service",
+        )
+    )
+    assert (await client.get("/v1/approvals/m-1", headers=analyst)).json()["outcome"] == "message_sent"

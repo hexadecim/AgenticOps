@@ -15,8 +15,14 @@ from opspilot_common.auth import ServiceTokenIssuer
 from opspilot_common.resilience import CircuitOpenError, ResilienceError, Resilient, ResilientHttpClient
 from pydantic import BaseModel, ValidationError
 
+from ...domain.comms import DraftText
 from ...domain.diagnosis import FixChoice, choice_schema
-from ...domain.errors import DiagnosisUnusableError, LlmUnavailableError, StopRunError
+from ...domain.errors import (
+    DiagnosisUnusableError,
+    DraftUnusableError,
+    LlmUnavailableError,
+    StopRunError,
+)
 from ...domain.triage import Intake
 
 MAX_BODY_CHARS = 6000  # keeps a reasoning model's run time bounded
@@ -227,3 +233,58 @@ class OllamaFixAdvisor:
         if not isinstance(result, BaseModel):
             raise ValueError("The model's answer did not match the schema")
         return FixChoice.model_validate(result.model_dump())
+
+
+COMMS = """You are Comms on an IT support team. You write the middle of one short email to a customer: plain,
+friendly English, one or two short paragraphs. A person checks your text before it is sent.
+Write no greeting, no sign-off, no reference number line and no AI notice: those are added for you.
+Use only the facts you are given and invent nothing: no numbers, times, causes or names that are not listed.
+Never promise anything about the future: no dates, no ETAs, no "soon", no "will be fixed".
+Do not name internal systems, services, logs or runbooks. Never write tokens such as [PERSON_1]."""
+
+
+class OllamaCommsWriter:
+    """deepseek writes the text (json_schema output, bounded length, reasoning kept out of the answer)."""
+
+    def __init__(self, settings: LlmSettingsCache, resilient: Resilient) -> None:
+        self._settings, self._resilient = settings, resilient
+
+    async def write(self, brief: str) -> str:
+        cfg = await self._settings.get()
+        try:
+            return await self._ask(cfg, brief, thinking=cfg.thinking)
+        except (OutputParserException, ValidationError, ValueError) as first:
+            if not cfg.thinking:
+                raise DraftUnusableError(
+                    f"the model's answer could not be read ({type(first).__name__})"
+                ) from first
+            try:  # reasoning can use the whole budget; one more try without it
+                return await self._ask(cfg, brief, thinking=False)
+            except (OutputParserException, ValidationError, ValueError) as again:
+                raise DraftUnusableError(
+                    f"the model's answer could not be read ({type(again).__name__})"
+                ) from again
+
+    async def _ask(self, cfg: LlmSettings, brief: str, *, thinking: bool) -> str:
+        from langchain_ollama import ChatOllama
+        from ollama import ResponseError
+
+        llm = ChatOllama(
+            base_url=cfg.url, model=cfg.model, reasoning=thinking, temperature=TEMPERATURE,
+            num_predict=MAX_TOKENS, client_kwargs={"timeout": self._resilient.config.timeout},
+        )  # fmt: skip
+        structured = llm.with_structured_output(DraftText, method="json_schema")
+        messages = [("system", COMMS), ("human", brief[:MAX_BODY_CHARS])]
+        try:
+            result = await _guarded(
+                self._resilient, f"The local model ({cfg.model})", lambda: structured.ainvoke(messages)
+            )
+        except ResponseError as exc:
+            if exc.status_code == 404:
+                raise LlmUnavailableError(f"The model {cfg.model} is not installed in Ollama") from exc
+            if exc.status_code >= 500:
+                raise LlmUnavailableError(f"Ollama failed: {exc.error}") from exc
+            raise DraftUnusableError(f"Ollama refused the request: {exc.error}") from exc
+        if not isinstance(result, DraftText):
+            raise ValueError("The model's answer did not match the schema")
+        return result.body

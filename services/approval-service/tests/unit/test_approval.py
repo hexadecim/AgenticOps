@@ -7,6 +7,7 @@ from approval_service.domain.approval import Approval, Outcome, Status
 from approval_service.domain.errors import AlreadyDecidedError, InvalidDecisionError, NotAllowedError
 from opspilot_common.auth.principal import Principal
 from opspilot_common.auth.roles import Role
+from opspilot_common.drafts import AI_DISCLOSURE, RECIPIENT_TOKEN
 from opspilot_common.events.catalogue import Decision, Gate
 
 NOW = datetime(2026, 10, 8, 10, 0, tzinfo=UTC)
@@ -137,3 +138,92 @@ def test_only_an_approved_fix_takes_a_health_verdict() -> None:
     assert not approval(Gate.FIX, Status.PENDING).health_checked(True, None)
     assert not approval(Gate.FIX, Status.REJECTED).health_checked(False, None)
     assert not approval(Gate.TICKET, Status.APPROVED).health_checked(True, None)
+
+
+MESSAGE_BODY = (
+    f"Hello {RECIPIENT_TOKEN},\n\nThe upload problem is fixed.\n\nReference: KAN-12\n\n{AI_DISCLOSURE}"
+)
+
+
+def message_approval(revision: int = 0, body: str = MESSAGE_BODY) -> Approval:
+    proposal = {
+        "subject": "Re: Upload stuck [KAN-12]",
+        "body": body,
+        "revision": revision,
+        "check_context": {
+            "jira_key": "KAN-12", "facts": "Problem: Upload stuck", "recipients": ["PERSON_1"],
+            "linked": ["PERSON_1"],
+        },
+    }  # fmt: skip
+    return Approval("a-3", "r-1", "t-1", Gate.MESSAGE, "Resolution update", "Comms", NOW, proposal=proposal)
+
+
+def test_message_approve_runs_the_checks_on_what_will_go_out() -> None:
+    analyst = person(Role.L1_ANALYST)
+    a = message_approval()
+    assert a.decide(analyst, Decision.APPROVE, reason=None, edits={}, now=NOW)
+    assert a.outcome is Outcome.MESSAGE_PENDING
+
+    bad_draft = message_approval(body=MESSAGE_BODY.replace("is fixed", "will be fixed by 12:00"))
+    with pytest.raises(InvalidDecisionError, match=r"cannot be sent yet.*No promises"):
+        bad_draft.decide(analyst, Decision.APPROVE, reason=None, edits={}, now=NOW)
+    assert bad_draft.status is Status.PENDING
+
+    for edits, message in (
+        ({"body": MESSAGE_BODY.replace(AI_DISCLOSURE, "")}, "AI disclosure"),
+        ({"body": MESSAGE_BODY + " Ask [PERSON_2]."}, "personal data"),
+        ({"body": MESSAGE_BODY + " Write to anna@kunde.de."}, "personal data"),
+        ({"subject": "Re: [PERSON_2] upload"}, "personal data"),
+        ({"subject": "x"}, "subject must be"),
+        ({"subject": "two\nlines"}, "one line"),
+        ({"body": "short"}, "message must be"),
+    ):
+        with pytest.raises(InvalidDecisionError, match=message):
+            message_approval().decide(analyst, Decision.APPROVE, reason=None, edits=edits, now=NOW)
+
+
+def test_an_approvers_own_figure_warns_but_does_not_block() -> None:
+    a = message_approval()
+    edited = {"body": MESSAGE_BODY + " We retried 41 uploads."}
+    facts = next(c for c in a.message_checks(edited) if c.id == "facts")
+    assert not facts.ok and not facts.blocking
+    assert a.decide(person(Role.L1_ANALYST), Decision.APPROVE, reason=None, edits=edited, now=NOW)
+    assert a.edits == {"body": edited["body"]}
+
+
+def test_send_back_needs_a_note_and_stops_after_two_revisions() -> None:
+    analyst = person(Role.L1_ANALYST)
+    with pytest.raises(InvalidDecisionError, match="Say why"):
+        message_approval().decide(analyst, Decision.SEND_BACK, reason=" ", edits={}, now=NOW)
+    a = message_approval(revision=1)
+    assert a.decide(analyst, Decision.SEND_BACK, reason="Shorter", edits={"body": "ignored"}, now=NOW)
+    assert a.status is Status.SENT_BACK and a.edits == {} and a.outcome is None
+    with pytest.raises(InvalidDecisionError, match="All 2 revisions"):
+        message_approval(revision=2).decide(analyst, Decision.SEND_BACK, reason="Again", edits={}, now=NOW)
+    last = message_approval(revision=2)
+    assert last.decide(analyst, Decision.REJECT, reason="Told by phone", edits={}, now=NOW)  # still a way out
+
+
+def test_only_message_gates_have_draft_checks_and_who_may_decide() -> None:
+    with pytest.raises(InvalidDecisionError):
+        approval().message_checks({})
+    with pytest.raises(NotAllowedError):
+        message_approval().decide(person(Role.ADMIN), Decision.APPROVE, reason=None, edits={}, now=NOW)
+
+
+def test_send_results_become_the_outcome() -> None:
+    a = message_approval()
+    a.message_result(["PERSON_1"], [], None)
+    assert a.outcome is Outcome.MESSAGE_SENT
+    a.message_result(["PERSON_1"], ["EMAIL_4"], "refused")
+    assert a.outcome is Outcome.MESSAGE_PARTLY_SENT and a.outcome_detail == "refused"
+    a.message_result([], ["PERSON_1"], "refused")
+    assert a.outcome is Outcome.MESSAGE_FAILED
+
+
+def test_the_first_health_verdict_stands() -> None:
+    a = fix_approval()
+    a.decide(person(Role.SUPPORT_AGENT), Decision.APPROVE, reason=None, edits={}, now=NOW)
+    assert a.health_checked(True, "All 5 probes pass")
+    assert not a.health_checked(True, "All 5 probes pass. Customer message sent")
+    assert a.health_detail == "All 5 probes pass"

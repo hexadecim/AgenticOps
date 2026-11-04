@@ -12,8 +12,11 @@ from opspilot_common.auth.roles import ROLE_LABELS, Role
 from opspilot_common.events.envelope import EventEnvelope
 
 from ..domain.model import (
+    CUSTOMER_REPLIED,
     KEY_DEPENDENCIES,
     LABELS,
+    VERDICTS,
+    WAITING_CUSTOMER,
     Case,
     Dependency,
     Health,
@@ -38,6 +41,7 @@ _PAUSE_NOTES = {
     "fix_rejected": "Fix rejected",
     "fix_failed": "Fix did not resolve it; escalate to on-call",
     "resolved": "Resolved: health probes pass after the fix",
+    "waiting_customer": "Waiting for the customer to answer",
 }
 _WITH_DETAIL = ("failed", "rejected", "fix_rejected", "fix_failed")
 
@@ -75,6 +79,10 @@ class ProjectEvent:
         at = env.occurred_at
         if isinstance(p, c.EmailReceived):
             await uow.emails.record(p.email_id, at)
+            for case in await uow.cases.by_thread(p.thread_id):  # the customer answered a follow-up
+                if case.status == WAITING_CUSTOMER:
+                    case.status, case.updated_at = CUSTOMER_REPLIED, at
+                    await uow.cases.save(case)
             for case in await uow.cases.by_email(p.email_id):
                 case.received_at = case.received_at or at
                 await uow.cases.save(case)
@@ -91,8 +99,11 @@ class ProjectEvent:
                 case.queued_at = case.queued_at or at
             case.paused = case.paused or p.status == "waiting_llm"
             case.jira_key = p.jira_key or case.jira_key
+            repeated = p.status in VERDICTS and case.verdict == p.status  # announced again at the run's end
+            if p.status in VERDICTS and not repeated:
+                case.verdict, case.verdict_at = p.status, at
             await uow.cases.save(case)
-            if p.status in _PAUSE_NOTES:
+            if p.status in _PAUSE_NOTES and not repeated:
                 detail = f": {p.detail}" if p.detail and p.status in _WITH_DETAIL else ""
                 await self._note(
                     uow,
@@ -119,7 +130,7 @@ class ProjectEvent:
             await self._note(
                 uow,
                 env,
-                "Triage" if p.gate is c.Gate.TICKET else "Diagnostics",
+                {c.Gate.TICKET: "Triage", c.Gate.FIX: "Diagnostics", c.Gate.MESSAGE: "Comms"}[p.gate],
                 f"Approval requested ({p.gate.value}): {p.title}",
                 run_id=p.run_id,
                 thread_id=p.thread_id,
@@ -166,6 +177,20 @@ class ProjectEvent:
             await self._note(
                 uow, env, "Health", f"{p.probe}{where} probe {state}: {p.detail}", run_id=p.run_id,
                 thread_id=p.thread_id, system=not p.thread_id,
+            )  # fmt: skip
+        elif isinstance(p, c.MessageSent):
+            people = ", ".join(f"[{t}]" for t in p.recipient_tokens)
+            missed = (
+                f"; not sent to {', '.join(f'[{t}]' for t in p.failed_tokens)}" if p.failed_tokens else ""
+            )
+            await self._note(
+                uow, env, "Mail service", f"Email sent to {people}{missed}", run_id=p.run_id,
+                thread_id=p.thread_id, jira_key=p.jira_key,
+            )  # fmt: skip
+        elif isinstance(p, c.MessageFailed):
+            await self._note(
+                uow, env, "Mail service", f"Email not sent: {p.reason}", run_id=p.run_id,
+                thread_id=p.thread_id, jira_key=p.jira_key,
             )  # fmt: skip
         elif isinstance(p, c.PrivacyRecorded) and p.action == "pseudonymise" and p.thread_id:
             await self._note(uow, env, "Privacy gate", p.detail, thread_id=p.thread_id)

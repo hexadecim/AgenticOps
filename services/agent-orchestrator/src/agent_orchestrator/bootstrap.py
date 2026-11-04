@@ -17,6 +17,7 @@ from .adapters.inbound.worker import RunWorker
 from .adapters.outbound.llm import (
     LlmSettingsCache,
     OllamaCircuit,
+    OllamaCommsWriter,
     OllamaEmbedder,
     OllamaFixAdvisor,
     OllamaIntake,
@@ -27,6 +28,7 @@ from .application import (
     AdvanceRuns,
     RecordDecision,
     RecordFixResult,
+    RecordMessageResult,
     RecordTicketResult,
     RunSummary,
     StartRun,
@@ -58,6 +60,7 @@ class Container:
     record_decision: RecordDecision
     record_ticket: RecordTicketResult
     record_fix: RecordFixResult
+    record_message: RecordMessageResult
     run_summary: RunSummary
     current_user: Callable[..., Awaitable[Principal]] = field(repr=False)
     closers: list = field(default_factory=list)  # type: ignore[type-arg]
@@ -110,6 +113,7 @@ def build_container(
             threads=SqlThreadTickets(sessions, tables),
             ops=OpsClient(http("ops-service", settings.ops_url), tokens),
             advisor=OllamaFixAdvisor(llm_settings, registry.get("ollama")),
+            comms=OllamaCommsWriter(llm_settings, registry.get("ollama")),
         )
     clock = clock or SystemClock()
     return Container(
@@ -126,6 +130,7 @@ def build_container(
         record_decision=RecordDecision(uow, clock),
         record_ticket=RecordTicketResult(uow, clock),
         record_fix=RecordFixResult(uow, clock),
+        record_message=RecordMessageResult(uow, clock),
         run_summary=RunSummary(uow, clock),
         current_user=principal_dependency(TokenVerifier(settings.jwt_secret)),
         closers=closers,

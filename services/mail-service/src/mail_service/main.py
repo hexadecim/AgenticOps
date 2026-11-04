@@ -10,7 +10,7 @@ from opspilot_common.events import EventRuntime, Inbox
 from opspilot_common.logging import configure_logging
 from opspilot_common.web import CorrelationIdMiddleware, health_routes
 
-from .adapters.inbound.events import on_settings_changed
+from .adapters.inbound.events import MESSAGE_BINDINGS, on_message_event, on_settings_changed
 from .adapters.inbound.http import build_internal_router, build_router, install_error_handlers
 from .bootstrap import SERVICE, Container, build_container
 from .config import Settings
@@ -33,6 +33,14 @@ def create_app(
             inbox = Inbox(container.tables.inbox, f"{SERVICE}.settings")
             handler = on_settings_changed(container.apply_settings, container.scheduler.wake)
             runtime.add_consumer("settings", ["settings.changed"], inbox.guard(container.sessions, handler))
+            messages = on_message_event(
+                container.queue_message, container.record_message_approval, container.scheduler.wake_sender
+            )
+            runtime.add_consumer(
+                "messages",
+                MESSAGE_BINDINGS,
+                Inbox(container.tables.inbox, f"{SERVICE}.messages").guard(container.sessions, messages),
+            )
             await runtime.start()
         scheduling = with_scheduler and container.settings.poller_enabled
         if scheduling:

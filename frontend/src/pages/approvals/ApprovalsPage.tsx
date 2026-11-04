@@ -20,7 +20,13 @@ function outcomeText(a: ApprovalSummary): string {
     case "fix_pending": return "Approved · fix running";
     case "fix_done": return `Approved · fix ran${a.jira_key ? ` for ${a.jira_key}` : ""}`;
     case "fix_failed": return `Approved · not run: ${a.outcome_detail ?? ""}`;
-    default: return a.status === "approved" ? "Approved" : a.detail;
+    case "message_pending": return "Approved · sending";
+    case "message_sent": return "Approved · sent";
+    case "message_partly_sent": return `Approved · not all sent: ${a.outcome_detail ?? ""}`;
+    case "message_failed": return `Approved · not sent: ${a.outcome_detail ?? ""}`;
+    default:
+      if (a.status === "sent_back") return `Sent back to Comms: ${a.reason ?? ""}`;
+      return a.status === "approved" ? "Approved" : a.detail;
   }
 }
 

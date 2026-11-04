@@ -416,14 +416,31 @@ Design: [ADR-0006](adr/0006-diagnostics-and-fix-gate.md). Mock environment, runb
       agent (`m6-gaps@`, deactivated)
 - Reject at T2 ends the run with the reason; continuing to Comms is milestone 7.
 
-## Milestone 7 — Comms + T3 customer message ⬜
+## Milestone 7 — Comms + T3 customer message 🟡 live run done; follow-up path and real Jira/Gmail not exercised
 
-- [ ] Comms node drafts acknowledgements / follow-ups / resolution updates with tokens
-- [ ] Draft checks: facts match ticket, no ETAs, no other personal data, recipients = linked reporters,
-      AI disclosure present
-- [ ] T3 gate: approve / edit / send back (max 2 revisions)
-- [ ] mail-service sends on `message.send.requested`, detokenised via privacy-service; `message.sent`
-- [ ] UI: Approve customer message screen
+Design: [ADR-0007](adr/0007-comms-and-message-gate.md). Live run 2026-11-04 on a **throwaway compose project**
+(`opspilot-m7`, own empty database, GreenMail, since removed): real deepseek-r1:8b, privacy-service, RabbitMQ, SMTP/IMAP
+and the SPA in headless Chrome. **Jira was a local stub**, and the dev database and Gmail were not used.
+
+- [x] Comms node drafts acknowledgements and resolution updates with tokens — live: 7 model drafts, all with greeting,
+      reference and disclosure added by code
+- [ ] Comms follow-up questions — tests only. Live, deepseek returned empty `missing_details` on all 4 reports where it
+      could be seen, even "it does not work", so the path never fired; see issue #29. `waiting_customer` and "customer_replied" are tests only
+- [x] Draft checks: facts match ticket, no ETAs, no other personal data, recipients = linked reporters,
+      AI disclosure present — live: blocked "shortly" and, after a fix, "in about a minute"; refused a bad edit (API + UI)
+- [x] T3 gate: approve / edit / send back (max 2 revisions) — live: edit, send-back (3 times), wrong role refused.
+      The revision limit and "Don't send" are tests only
+- [x] mail-service sends on `message.send.requested` + its own view of `approval.decided`, detokenised via
+      privacy-service; `message.sent` — live: 5 emails in GreenMail, one per reporter, real name, threaded, no tokens, no
+      duplicates; privacy-service stopped ⇒ held, sent after it returned. `message.failed`, crash recovery: tests only
+- [x] UI: Approve customer message screen — walked in headless Chrome: edit, failed check disables Approve, approve,
+      footer updates live to "sent", no browser errors. Not yet seen by a person; sign-in not part of this run
+- [x] Dashboard: "Resolved today" counts a fixed incident while its message waits at T3 — live (case verdict + API)
+- [ ] Same flow on the real stack (dev database, real Jira) after the next `make up`, with the mailbox on GreenMail
+
+**Found by the live run and fixed:** the runbook's expected effect was given to the model as "what was done", so a
+resolution said "the service restarts in about a minute" after the fact; the ETA check missed "in about …"; sent-back
+drafts read "all checks pass" in the Decided list.
 
 ## Milestone 8 — Privacy / GDPR ⬜
 
@@ -472,4 +489,10 @@ Design: [ADR-0006](adr/0006-diagnostics-and-fix-gate.md). Mock environment, runb
 | 23 | Real Gmail backlog after the stack was off since 21 Oct: ~550 runs queued at ~70 s each | Takes hours; synthetic tests had to be moved to the front of the queue | Dedicated support mailbox or sender allow-list (see #18) |
 | 24 | deepseek-r1:8b fix choice can take ~4 min (reasoning hits the budget, then a retry without it) | T2 requests appear minutes after the ticket | Acceptable (background); consider thinking off for diagnostics |
 | 22 | Breaker events are published directly (not via an outbox) | A transition while RabbitMQ is down is not reported (still visible in Redis/metrics/logs) | Acceptable: health is a live signal; the System health page reads Redis |
+| 26 | Comms is English only; the promise check knows English phrases only | A German customer gets an English reply; an approver editing in German gets no ETA check | Add languages when real traffic needs them |
+| 27 | Customer hears nothing until the run ends (after diagnostics and any T2) | A T2 waiting for hours means hours without an acknowledgement | ADR-0007 chose this so T3 never holds up a fix. Revisit with a non-blocking early acknowledgement |
+| 28 | "No other personal data" uses patterns | A name typed as plain text is not caught | The approver reads every draft; could run the Presidio leak check at T3 |
+| 29 | deepseek-r1:8b fills `missing_details` with nothing (0 of 4 live reports checked), and sometimes leaves `category` empty | Follow-up questions practically never fire; customers get an acknowledgement instead; "Intake:  · …" in the queue | Improve the Intake prompt or derive missing details in code (no site, no error, …) |
+| 30 | deepseek classed a short "failing for us as well" email as not a support request (1 live case) | That reporter's run was ignored: no ticket link, no reply | Existing risk from #18; consider a second look at mail on a thread or naming a known site |
+| 31 | The model followed a send-back note only partly (1 of 3 live cases) | The approver must re-read each redraft; they can edit it | Accept: T3 exists for this |
 | 23 | Reporting has no event store | Read models built before a consumer existed need an outbox replay; a *new* read model inside an existing consumer cannot be backfilled that way (its inbox already holds the event ids) — probes avoid this by ops-service announcing their state at start-up | Add an event archive or rebuild command in milestone 9 |

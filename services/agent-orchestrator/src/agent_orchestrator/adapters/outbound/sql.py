@@ -53,6 +53,8 @@ class OrchestratorTables:
             Column("decision", JSON, nullable=True),
             Column("attempts", Integer, nullable=False),
             Column("results", JSON, nullable=True),
+            # Tokens and email id only. Written by the graph, so not part of the Run the worker saves.
+            Column("reporter", JSON, nullable=True),
         )
         self.outbox = outbox_table(self.metadata)
         self.inbox = inbox_table(self.metadata)
@@ -238,3 +240,18 @@ class SqlThreadTickets:
             t = self._tables.runs
             count = (await session.execute(select(func.count()).where(t.c.jira_key == jira_key))).scalar_one()
         return max(1, int(count))
+
+    async def remember_reporter(self, run_id: str, reporter: dict[str, Any]) -> None:
+        t = self._tables.runs
+        async with self._sessions() as session, session.begin():
+            await session.execute(update(t).where(t.c.id == run_id).values(reporter=reporter))
+
+    async def linked_reporters(self, jira_key: str, *, exclude_run: str) -> list[dict[str, Any] | None]:
+        t = self._tables.runs
+        async with self._sessions() as session:
+            rows = await session.execute(
+                select(t.c.reporter)
+                .where(t.c.jira_key == jira_key, t.c.id != exclude_run)
+                .order_by(t.c.created_at)
+            )
+            return [dict(r.reporter) if r.reporter else None for r in rows]

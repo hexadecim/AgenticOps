@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { approvalsApi } from "../../api/approvals";
 import { AppShell } from "../../components/AppShell";
 import { ApproveFixPage } from "./ApproveFixPage";
+import { ApproveMessagePage } from "./ApproveMessagePage";
 import { ApproveTicketPage } from "./ApproveTicketPage";
 
 const TITLES = { ticket: "Approvals · Create ticket", fix: "Approvals · Production fix", message: "Approvals · Customer message" };
@@ -15,7 +16,7 @@ export function ApprovalPage() {
   return (
     <AppShell title={gate ? TITLES[gate] : "Approvals"}>
       {query.isLoading ? <div className="row muted"><span className="spinner" />Loading…</div>
-        : gate === "fix" ? <ApproveFixPage /> : <ApproveTicketPage />}
+        : gate === "fix" ? <ApproveFixPage /> : gate === "message" ? <ApproveMessagePage /> : <ApproveTicketPage />}
     </AppShell>
   );
 }

@@ -19,7 +19,8 @@ export interface ApprovalSummary {
   decided_at: string | null;
   decided_by_role: Role | null;
   reason: string | null;
-  outcome: "ticket_pending" | "ticket_created" | "linked" | "ticket_failed" | "fix_pending" | "fix_done" | "fix_failed" | null;
+  outcome: "ticket_pending" | "ticket_created" | "linked" | "ticket_failed" | "fix_pending" | "fix_done" | "fix_failed"
+    | "message_pending" | "message_sent" | "message_partly_sent" | "message_failed" | null;
   outcome_detail: string | null;
   /** T2 only: the health re-check after the fix ran. */
   health?: "resolved" | "fix_failed" | null;
@@ -132,6 +133,36 @@ export interface FixApprovalDetail extends ApprovalSummary {
   edits: { params?: Record<string, string> };
 }
 
+export interface DraftCheck {
+  id: string;
+  label: string;
+  ok: boolean;
+  detail: string;
+  /** false: a warning. The approver may still send. */
+  blocking: boolean;
+}
+
+/** Gate T3: a customer message drafted by Comms. Tokenised until mail-service sends it. */
+export interface MessageProposal {
+  kind: "acknowledgement" | "follow_up" | "resolution";
+  kind_label: string;
+  subject: string;
+  body: string;
+  recipients: { email_token: string; name_token: string | null; email_id: string; site: string | null; how: string }[];
+  checks: DraftCheck[];
+  revision: number;
+  max_revisions: number;
+  notes: string[];
+  written_by: "model" | "template";
+  jira_key: string | null;
+  model: { model?: string; thinking?: boolean };
+}
+
+export interface MessageApprovalDetail extends ApprovalSummary {
+  proposal: MessageProposal;
+  edits: { subject?: string; body?: string };
+}
+
 /** Fresh evidence from ops-service for a pending fix (503 when ops-service is unavailable). */
 export interface Evidence {
   checked_at: string;
@@ -163,8 +194,11 @@ export const approvalsApi = {
     api<{ items: ApprovalSummary[]; stats: QueueStats }>(`/approvals${decided ? "?decided=true" : ""}`),
   get: (id: string) => api<ApprovalDetail>(`/approvals/${id}`),
   getFix: (id: string) => api<FixApprovalDetail>(`/approvals/${id}`),
+  getMessage: (id: string) => api<MessageApprovalDetail>(`/approvals/${id}`),
   evidence: (id: string) => api<Evidence>(`/fixes/${id}/evidence`),
-  decide: (id: string, decision: "approve" | "reject", reason?: string, edits: Record<string, unknown> = {}) =>
+  draftChecks: (id: string, edits: { subject?: string; body?: string }) =>
+    api<{ checks: DraftCheck[] }>(`/approvals/${id}/checks`, { method: "POST", body: { edits } }),
+  decide: (id: string, decision: "approve" | "reject" | "send_back", reason?: string, edits: Record<string, unknown> = {}) =>
     api<ApprovalDetail>(`/approvals/${id}/decision`, { method: "POST", body: { decision, reason, edits } }),
   runs: () => api<RunSummary>("/runs/summary"),
   reveal: (token: string, reason: string, threadId: string) =>

@@ -10,6 +10,7 @@ from typing import Self
 from opspilot_common.events.envelope import EventPayload
 
 from ...domain.mail import StoredEmail
+from ...domain.outgoing import OutgoingMessage, OutgoingStatus
 from ...domain.status import PollState
 
 
@@ -58,10 +59,50 @@ class InMemoryPollStateRepository:
         self.state = copy.deepcopy(state)
 
 
+class InMemoryOutgoingRepository:
+    def __init__(self) -> None:
+        self.rows: dict[str, OutgoingMessage] = {}
+        self.approved: dict[str, datetime] = {}
+
+    async def exists(self, message_id: str) -> bool:
+        return any(r.message_id == message_id for r in self.rows.values())
+
+    async def add(self, message: OutgoingMessage) -> None:
+        self.rows[message.id] = copy.copy(message)
+
+    async def save(self, message: OutgoingMessage) -> None:
+        self.rows[message.id] = copy.copy(message)
+
+    async def approve(self, approval_id: str, at: datetime) -> None:
+        self.approved.setdefault(approval_id, at)
+
+    async def due(self, now: datetime, limit: int) -> list[OutgoingMessage]:
+        due = [
+            r
+            for r in self.rows.values()
+            if r.status is OutgoingStatus.PENDING and r.next_try_at <= now and r.approval_id in self.approved
+        ]
+        return [copy.copy(r) for r in sorted(due, key=lambda r: r.created_at)[:limit]]
+
+    async def of_message(self, message_id: str) -> list[OutgoingMessage]:
+        return [copy.copy(r) for r in self.rows.values() if r.message_id == message_id]
+
+    async def interrupted(self) -> list[OutgoingMessage]:
+        return [copy.copy(r) for r in self.rows.values() if r.status is OutgoingStatus.SENDING]
+
+    async def delete_created_before(self, cutoff: datetime) -> int:
+        done = (OutgoingStatus.SENT, OutgoingStatus.FAILED)
+        old = [k for k, r in self.rows.items() if r.created_at < cutoff and r.status in done]
+        for key in old:
+            del self.rows[key]
+        return len(old)
+
+
 class InMemoryStore:
     def __init__(self) -> None:
         self.emails = InMemoryEmailRepository()
         self.poll_state = InMemoryPollStateRepository()
+        self.outgoing = InMemoryOutgoingRepository()
         self.published: list[tuple[EventPayload, str | None]] = []
 
 
@@ -74,6 +115,7 @@ class InMemoryUnitOfWork:
     async def __aenter__(self) -> Self:
         self.emails = copy.deepcopy(self._store.emails)
         self.poll_state = copy.deepcopy(self._store.poll_state)
+        self.outgoing = copy.deepcopy(self._store.outgoing)
         self._pending: list[tuple[EventPayload, str | None]] = []
         self.events = self
         return self
@@ -87,9 +129,10 @@ class InMemoryUnitOfWork:
         self._pending.clear()
 
     async def commit(self) -> None:
-        self._store.emails, self._store.poll_state = (
+        self._store.emails, self._store.poll_state, self._store.outgoing = (
             copy.deepcopy(self.emails),
             copy.deepcopy(self.poll_state),
+            copy.deepcopy(self.outgoing),
         )
         self._store.published.extend(self._pending)
         self._pending.clear()
