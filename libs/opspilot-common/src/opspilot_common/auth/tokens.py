@@ -1,7 +1,7 @@
 """Session JWTs: identity-service issues, every other service only verifies.
 
-HS256 with a shared secret for development; switch `algorithm` to RS256 and give verifiers only the public
-key for production (ADR-0001).
+HS256 with a shared secret for development. In production RS256: verifiers hold only the public key, so no
+other service can mint a session (`keys.AuthKeys`, ADR-0009).
 """
 
 from __future__ import annotations

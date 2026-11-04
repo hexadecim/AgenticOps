@@ -118,6 +118,9 @@ export function ApprovalsPage() {
         {!pending.isLoading && rows.length === 0 && (
           <div className="queue-empty">{tab === "decided" ? "Nothing decided yet." : "Nothing is waiting for you. New support emails appear here after triage."}</div>
         )}
+        {tab === "all" && stats && stats.waiting > items.length && (
+          <div role="status" className="queue-empty">Showing the {items.length} waiting longest of {stats.waiting}. Decide these first; the rest follow.</div>
+        )}
         {rows.map((a) => (
           <Link key={a.id} to={`/approvals/${a.id}`} className="queue-row">
             <span className="row" style={{ gap: 8 }}>

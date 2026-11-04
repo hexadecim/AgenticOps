@@ -32,6 +32,7 @@ dev = [
   "fakeredis>=2.26",
   "aiosqlite>=0.20",
   "asyncpg>=0.30",
+  "psycopg[binary]>=3.2",
   "ruff>=0.8",
   "mypy>=1.13",
   "import-linter>=2.1",
@@ -48,6 +49,8 @@ select = ["E", "F", "I", "B", "UP", "SIM", "ASYNC", "RUF", "N"]
 
 [tool.ruff.lint.per-file-ignores]
 "scripts/*" = ["E501"]
+"tests/system/*" = ["ASYNC110", "E501"]
+"tests/load/*" = ["ASYNC110", "E501", "ASYNC212"]
 # FastAPI dependency aliases (CurrentUser = Annotated[...]) are type names, built inside router factories.
 "**/adapters/inbound/http.py" = ["N806"]
 

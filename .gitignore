@@ -21,3 +21,13 @@ frontend/dist/
 *claude*
 *CLAUDE*
 *Claude/*
+
+# Generated production secrets
+deploy/prod/secrets/
+
+# Playwright
+frontend/test-results/
+frontend/playwright-report/
+
+# TypeScript build cache
+frontend/*.tsbuildinfo

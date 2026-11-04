@@ -14,9 +14,12 @@ its start on resume.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable, Callable
+from functools import wraps
 from typing import Any, TypedDict
 
 from langchain_core.runnables import RunnableConfig
+from langgraph.errors import GraphBubbleUp
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 from opspilot_common.drafts import MAX_REVISIONS
@@ -28,6 +31,7 @@ from opspilot_common.events.catalogue import (
     MessageSendRequested,
     RunStatusChanged,
 )
+from opspilot_common.telemetry import span
 
 from ..domain.comms import (
     FOLLOW_UP,
@@ -515,6 +519,17 @@ async def await_send(state: TicketState, config: RunnableConfig) -> dict[str, An
     return {"send_result": result, "message_outcome": outcome}
 
 
+def _traced(
+    name: str, node: Callable[..., Awaitable[dict[str, Any]]]
+) -> Callable[..., Awaitable[dict[str, Any]]]:
+    @wraps(node)  # LangGraph reads the signature to hand over `config`
+    async def traced(state: TicketState, config: RunnableConfig) -> dict[str, Any]:
+        with span(f"node {name}", run_id=state.get("run_id", ""), expected=(GraphBubbleUp,)):
+            return await node(state, config)
+
+    return traced
+
+
 def build_graph() -> StateGraph:  # type: ignore[type-arg]
     graph = StateGraph(TicketState)
     for name, node in (
@@ -535,7 +550,7 @@ def build_graph() -> StateGraph:  # type: ignore[type-arg]
         ("request_send", request_send),
         ("await_send", await_send),
     ):
-        graph.add_node(name, node)
+        graph.add_node(name, _traced(name, node))
     graph.add_edge(START, "privacy_gate")
     graph.add_edge("privacy_gate", "intake")
     graph.add_conditional_edges("intake", after_intake, ["dedupe", END])

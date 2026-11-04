@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
-from opspilot_common.auth import Principal, Role, TokenVerifier
+from opspilot_common.auth import AuthKeys, Principal, Role, TokenVerifier
 from opspilot_common.resilience import (
     ResilienceRegistry,
     ResilienceSettings,
@@ -86,6 +86,7 @@ def build_container(
     limiter: RateLimiter | None = None,
     redis: Redis | None = None,
 ) -> Container:
+    keys = AuthKeys.load("api-gateway", settings.jwt_secret, settings.auth_keys_dir)
     redis = redis or Redis.from_url(settings.redis_url)
     registry = redis_registry(redis, settings.resilience_config, is_failure=_is_failure)
     closers: list = [redis.aclose]  # type: ignore[type-arg]
@@ -110,7 +111,7 @@ def build_container(
         if settings.resilience_config
         else ResilienceSettings()
     )
-    current = principal_dependency(TokenVerifier(settings.jwt_secret))
+    current = principal_dependency(keys.session_verifier())
     return Container(
         settings=settings,
         registry=registry,
@@ -124,7 +125,7 @@ def build_container(
         reporting=reporting,
         ops=ops,
         live=Broadcaster(),
-        verifier=TokenVerifier(settings.jwt_secret),
+        verifier=keys.session_verifier(),
         sign_in=SignIn(identity, limiter, settings.sign_in_limit_per_minute),
         health=SystemHealth(RedisBreakerStateReader(redis), resilience),
         require_admin=require_roles(current, Role.ADMIN),

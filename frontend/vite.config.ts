@@ -9,4 +9,7 @@ export default defineConfig({
     port: 5173,
     proxy: { "/api": { target: process.env.GATEWAY_URL ?? "http://localhost:8000", changeOrigin: false } },
   },
+  preview: {
+    proxy: { "/api": { target: process.env.GATEWAY_URL ?? "http://localhost:8000", changeOrigin: false } },
+  },
 });

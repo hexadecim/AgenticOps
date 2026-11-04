@@ -15,7 +15,7 @@ different rates, and several handle personal data that must be isolated.
 - Sync HTTP only where an answer is needed immediately; everything else is events over RabbitMQ with a
   transactional outbox and idempotent inbox.
 - The SPA talks only to `api-gateway` (BFF), which verifies the session JWT. identity-service issues JWTs
-  (HS256 shared secret in dev; RS256 with public-key-only verifiers in production).
+  (HS256 shared secret in dev; RS256 with public-key-only verifiers in production, see ADR-0009).
 
 ## Consequences
 + Faults are contained (an Ollama stall cannot block approvals or audit); personal data stays in

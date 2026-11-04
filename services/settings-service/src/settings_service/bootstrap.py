@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
-from opspilot_common.auth import Principal, Role, ServiceTokenVerifier, TokenVerifier
+from opspilot_common.auth import AuthKeys, Principal, Role
 from opspilot_common.resilience import ResilienceRegistry, ResilientHttpClient, redis_registry
 from opspilot_common.web import principal_dependency, require_roles, service_dependency
 from redis.asyncio import Redis
@@ -21,6 +21,7 @@ from .adapters.outbound.testers.ollama import OllamaTester
 from .adapters.outbound.testers.ops import OpsTester
 from .application import GetSection, ResolveSection, RunConnectionTest, SaveSection
 from .config import Settings
+from .domain.targets import TargetPolicy
 from .ports import Clock, ConnectionTester, UnitOfWork
 
 
@@ -73,6 +74,8 @@ def build_container(
     testers: dict[str, ConnectionTester] | None = None,
     redis: Redis | None = None,
 ) -> Container:
+    keys = AuthKeys.load("settings-service", settings.jwt_secret, settings.auth_keys_dir)
+    targets = TargetPolicy.parse(settings.allowed_target_hosts)
     engine = engine or create_async_engine(settings.database_url, pool_pre_ping=True)
     tables = SettingsTables(schema=settings.db_schema if schema is None else schema or None)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -87,7 +90,7 @@ def build_container(
     if testers is None:
         testers, more = default_testers(registry)
         closers.extend(more)
-    current = principal_dependency(TokenVerifier(settings.jwt_secret))
+    current = principal_dependency(keys.session_verifier())
     return Container(
         settings=settings,
         engine=engine,
@@ -95,11 +98,11 @@ def build_container(
         sessions=sessions,
         registry=registry,
         get_section=GetSection(uow),
-        save_section=SaveSection(uow, clock or SystemClock()),
-        run_connection_test=RunConnectionTest(uow, testers),
+        save_section=SaveSection(uow, clock or SystemClock(), targets),
+        run_connection_test=RunConnectionTest(uow, testers, targets),
         resolve_section=ResolveSection(uow),
         require_admin=require_roles(current, Role.ADMIN),
         # Any valid service token gets in; ResolveSection checks which service may read which section.
-        require_service=service_dependency(ServiceTokenVerifier(settings.jwt_secret)),
+        require_service=service_dependency(keys.service_verifier()),
         closers=closers,
     )

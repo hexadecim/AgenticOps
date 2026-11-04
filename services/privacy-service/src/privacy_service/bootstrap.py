@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
-from opspilot_common.auth import Principal, ServiceTokenIssuer, ServiceTokenVerifier, TokenVerifier
+from opspilot_common.auth import AuthKeys, Principal
 from opspilot_common.resilience import ResilienceRegistry, ResilientHttpClient, redis_registry
 from opspilot_common.web import principal_dependency, service_dependency
 from redis.asyncio import Redis
@@ -107,6 +107,7 @@ def build_container(
     clock: Clock | None = None,
     stores: SubjectStores | None = None,
 ) -> Container:
+    keys = AuthKeys.load(SERVICE, settings.jwt_secret, settings.auth_keys_dir)
     engine = engine or create_async_engine(settings.database_url, pool_pre_ping=True)
     tables = PrivacyTables(schema=settings.db_schema if schema is None else schema or None)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -118,7 +119,7 @@ def build_container(
     redis = redis or Redis.from_url(settings.redis_url)
     registry = redis_registry(redis, settings.resilience_config)
     closers: list = [redis.aclose]  # type: ignore[type-arg]
-    tokens = ServiceTokenIssuer(settings.jwt_secret, SERVICE)
+    tokens = keys.service_issuer()
 
     def client(name: str, url: str) -> ResilientHttpClient:
         http = ResilientHttpClient.from_registry(registry, name, base_url=url)
@@ -168,10 +169,10 @@ def build_container(
         record_dsr_message=RecordDsrMessage(uow, clock),
         build_outbound=BuildOutbound(uow, stores, clock),
         purge_identities=PurgeExpiredIdentities(uow, stores, clock, days=settings.vault_retention_days),
-        current_user=principal_dependency(TokenVerifier(settings.jwt_secret)),
+        current_user=principal_dependency(keys.session_verifier()),
         # Use cases decide which service may do what; the route only requires a valid service token.
         require_service=service_dependency(
-            ServiceTokenVerifier(settings.jwt_secret), *sorted(PSEUDONYMISE_SERVICES | DETOKENISE_SERVICES)
+            keys.service_verifier(), *sorted(PSEUDONYMISE_SERVICES | DETOKENISE_SERVICES)
         ),
         closers=closers,
     )

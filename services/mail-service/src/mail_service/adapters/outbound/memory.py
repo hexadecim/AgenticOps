@@ -74,6 +74,13 @@ class InMemoryOutgoingRepository:
     async def save(self, message: OutgoingMessage) -> None:
         self.rows[message.id] = copy.copy(message)
 
+    async def claim(self, message: OutgoingMessage) -> bool:
+        if self.rows[message.id].status is not OutgoingStatus.PENDING:
+            return False
+        message.claim()
+        self.rows[message.id] = copy.copy(message)
+        return True
+
     async def approve(self, approval_id: str, at: datetime) -> None:
         self.approved.setdefault(approval_id, at)
 
@@ -111,6 +118,13 @@ class InMemoryDsrMessageRepository:
 
     async def save(self, message: DsrMessage) -> None:
         self.rows[message.id] = copy.copy(message)
+
+    async def claim(self, message: DsrMessage) -> bool:
+        if self.rows[message.id].status is not OutgoingStatus.PENDING:
+            return False
+        message.claim()
+        self.rows[message.id] = copy.copy(message)
+        return True
 
     async def due(self, now: datetime, limit: int) -> list[DsrMessage]:
         due = [r for r in self.rows.values() if r.status is OutgoingStatus.PENDING and r.next_try_at <= now]

@@ -8,7 +8,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from opspilot_common.events import EventRuntime
 from opspilot_common.logging import configure_logging
-from opspilot_common.web import CorrelationIdMiddleware, health_routes
+from opspilot_common.telemetry.setup import setup_tracing
+from opspilot_common.web import NO_NATIVE_TELEMETRY, CorrelationIdMiddleware, health_routes
 
 from .adapters.inbound.http import build_internal_router, build_router, install_error_handlers
 from .bootstrap import Container, build_container
@@ -19,6 +20,7 @@ def create_app(container: Container | None = None, *, with_events: bool = True) 
     if container is None:
         settings = Settings()
         configure_logging("settings-service", json=settings.log_json)
+        setup_tracing("settings-service")
         container = build_container(settings)
 
     @asynccontextmanager
@@ -35,7 +37,9 @@ def create_app(container: Container | None = None, *, with_events: bool = True) 
             await close()
         await container.engine.dispose()
 
-    app = FastAPI(title="OpsPilot settings-service", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(
+        telemetry=NO_NATIVE_TELEMETRY, title="OpsPilot settings-service", version="0.1.0", lifespan=lifespan
+    )
     app.add_middleware(CorrelationIdMiddleware)
     install_error_handlers(app)
     app.include_router(build_router(container))

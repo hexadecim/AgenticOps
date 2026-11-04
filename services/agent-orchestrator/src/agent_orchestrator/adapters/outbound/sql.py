@@ -53,6 +53,7 @@ class OrchestratorTables:
             Column("decision", JSON, nullable=True),
             Column("attempts", Integer, nullable=False),
             Column("results", JSON, nullable=True),
+            Column("trace", String(64), nullable=True),
             # Tokens and email id only. Written by the graph, so not part of the Run the worker saves.
             Column("reporter", JSON, nullable=True),
         )
@@ -79,6 +80,7 @@ def _row(r: Run) -> dict[str, Any]:
         "decision": r.decision,
         "attempts": r.attempts,
         "results": r.results or None,
+        "trace": r.trace,
     }
 
 
@@ -98,6 +100,7 @@ def _run(r: Any) -> Run:
         decision=r.decision,
         attempts=r.attempts,
         results=dict(r.results or {}),
+        trace=r.trace,
     )
 
 
@@ -111,6 +114,10 @@ class SqlRunRepository:
 
     async def get(self, run_id: str) -> Run | None:
         return await self._one(self._t.c.id == run_id)
+
+    async def get_for_update(self, run_id: str) -> Run | None:
+        row = (await self._s.execute(select(self._t).where(self._t.c.id == run_id).with_for_update())).first()
+        return _run(row) if row else None
 
     async def by_email(self, email_id: str) -> Run | None:
         return await self._one(self._t.c.email_id == email_id)

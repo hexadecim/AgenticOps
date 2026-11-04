@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from opspilot_common.auth import Principal, ServiceTokenIssuer, ServiceTokenVerifier, TokenVerifier
+from opspilot_common.auth import AuthKeys, Principal
 from opspilot_common.resilience import ResilienceRegistry, ResilientHttpClient, redis_registry
 from opspilot_common.web import principal_dependency, service_dependency
 from redis.asyncio import Redis
@@ -88,6 +88,7 @@ def build_container(
     llm_circuit: LlmCircuit | None = None,
     clock: Clock | None = None,
 ) -> Container:
+    keys = AuthKeys.load(SERVICE, settings.jwt_secret, settings.auth_keys_dir)
     engine = engine or create_async_engine(settings.database_url, pool_pre_ping=True)
     tables = OrchestratorTables(schema=settings.db_schema if schema is None else schema or None)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -98,7 +99,7 @@ def build_container(
     redis = redis or Redis.from_url(settings.redis_url)
     registry = redis_registry(redis, settings.resilience_config)
     closers: list = [redis.aclose]  # type: ignore[type-arg]
-    tokens = ServiceTokenIssuer(settings.jwt_secret, SERVICE)
+    tokens = keys.service_issuer()
 
     def http(name: str, url: str) -> ResilientHttpClient:
         client = ResilientHttpClient.from_registry(registry, name, base_url=url)
@@ -136,7 +137,7 @@ def build_container(
         record_message=RecordMessageResult(uow, clock),
         run_summary=RunSummary(uow, clock),
         subject_store=SqlRunSubjectStore(sessions, tables),
-        current_user=principal_dependency(TokenVerifier(settings.jwt_secret)),
-        require_privacy=service_dependency(ServiceTokenVerifier(settings.jwt_secret), "privacy-service"),
+        current_user=principal_dependency(keys.session_verifier()),
+        require_privacy=service_dependency(keys.service_verifier(), "privacy-service"),
         closers=closers,
     )

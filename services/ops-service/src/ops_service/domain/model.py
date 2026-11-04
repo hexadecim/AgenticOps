@@ -184,6 +184,7 @@ class FixJob:
     attempts: int = 0
     detail: str | None = None
     ok: bool | None = None
+    trace: str | None = None  # W3C trace context of the case
 
     def done(self, ok: bool, detail: str) -> None:
         self.status, self.ok, self.detail = JobStatus.DONE, ok, detail

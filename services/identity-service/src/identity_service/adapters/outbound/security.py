@@ -10,7 +10,7 @@ import pyotp
 from argon2 import PasswordHasher as Argon2
 from argon2.exceptions import InvalidHashError, VerificationError
 from cryptography.fernet import Fernet
-from opspilot_common.auth import Principal, TokenIssuer
+from opspilot_common.auth import AuthKeys, Principal
 
 from ...domain.errors import ChallengeExpiredError
 
@@ -67,8 +67,8 @@ class FernetSecretCipher:
 
 
 class JwtSessionIssuer:
-    def __init__(self, secret: str, ttl: timedelta) -> None:
-        self._issuer = TokenIssuer(secret, ttl=ttl)
+    def __init__(self, keys: AuthKeys, ttl: timedelta) -> None:
+        self._issuer = keys.session_issuer(ttl)
         self._ttl = ttl
 
     @property

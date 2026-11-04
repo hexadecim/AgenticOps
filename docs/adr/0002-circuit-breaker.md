@@ -31,6 +31,7 @@ can be slow or down; without isolation, one stalled dependency exhausts workers 
 | privacy-service | **Fail closed**: processing stops; raw text never reaches the LLM. |
 | rabbitmq | Outbox rows stay pending; relay retries. No event is lost. |
 | any service (gateway) | 503 with structured error; SPA shows a non-blocking banner. |
+| redis (breaker state) | Each process keeps its own state until Redis returns; calls continue (ADR-0009). |
 
 ## Consequences
 + Bounded latency and no cascades; explicit, tested degraded modes.

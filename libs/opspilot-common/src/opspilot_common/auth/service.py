@@ -1,8 +1,8 @@
 """Service-to-service tokens for internal APIs (`/internal/...`), never exposed through the gateway.
 
-Signed with a key *derived* from the shared secret, with their own issuer and audience, so a user session
-token is never accepted as a service token and a service token is never accepted as a user session.
-HS256 for development; moves to RS256 with per-service keys together with session tokens (ADR-0001).
+Their own issuer and audience, so a user session token is never accepted as a service token and a service
+token never as a user session. Development: HS256 with a key *derived* from the shared secret. Production:
+RS256 with one private key per service, so a compromised one cannot name another (`keys.AuthKeys`, ADR-0009).
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import time
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 
 import jwt
 
@@ -27,8 +27,12 @@ def _derive(secret: str) -> bytes:
 class ServiceTokenIssuer:
     """Mints short-lived tokens naming the calling service; reuses one until shortly before it expires."""
 
-    def __init__(self, secret: str, service: str, *, ttl_seconds: int = 300) -> None:
-        self._key, self._service, self._ttl = _derive(secret), service, ttl_seconds
+    def __init__(
+        self, secret: str, service: str, *, ttl_seconds: int = 300, private_key: str | None = None
+    ) -> None:
+        self._key: str | bytes = private_key or _derive(secret)
+        self._algorithm = "RS256" if private_key else "HS256"
+        self._service, self._ttl = service, ttl_seconds
         self._token, self._expires = "", 0.0
 
     @property
@@ -46,7 +50,7 @@ class ServiceTokenIssuer:
                 "iat": int(now),
                 "exp": int(self._expires),
             }
-            self._token = jwt.encode(claims, self._key, algorithm="HS256")
+            self._token = jwt.encode(claims, self._key, algorithm=self._algorithm)
         return self._token
 
     def header(self) -> dict[str, str]:
@@ -54,16 +58,29 @@ class ServiceTokenIssuer:
 
 
 class ServiceTokenVerifier:
-    def __init__(self, secret: str) -> None:
-        self._key = _derive(secret)
+    def __init__(self, secret: str, *, public_keys: Mapping[str, str] | None = None) -> None:
+        self._public_keys = public_keys
+        self._key = _derive(secret) if public_keys is None else b""
+
+    def _decode(self, token: str) -> dict[str, object]:
+        if self._public_keys is None:
+            key: str | bytes = self._key
+            algorithm = "HS256"
+        else:
+            # The token names its service; only that service's public key can confirm it.
+            named = jwt.decode(token, options={"verify_signature": False}).get("sub")
+            found = self._public_keys.get(str(named))
+            if found is None:
+                raise InvalidTokenError(f"unknown service {named}")
+            key, algorithm = found, "RS256"
+        return dict(
+            jwt.decode(token, key, algorithms=[algorithm], issuer=SERVICE_ISSUER, audience=INTERNAL_AUDIENCE)
+        )
 
     def verify(self, token: str, allowed: Collection[str] | None = None) -> str:
         """Return the calling service's name; raise InvalidTokenError when invalid or not allowed."""
         try:
-            claims = jwt.decode(
-                token, self._key, algorithms=["HS256"], issuer=SERVICE_ISSUER, audience=INTERNAL_AUDIENCE
-            )
-            service = str(claims["sub"])
+            service = str(self._decode(token)["sub"])
         except (jwt.PyJWTError, KeyError) as exc:
             raise InvalidTokenError(str(exc)) from exc
         if allowed is not None and service not in allowed:

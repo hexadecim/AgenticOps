@@ -11,6 +11,7 @@ from enum import StrEnum
 
 import structlog
 from opspilot_common.events.catalogue import EmailReceived
+from opspilot_common.telemetry import span
 
 from ..domain.errors import MailboxRejectedError, MailboxUnavailableError, SettingsUnavailableError
 from ..domain.mail import IncomingMail, StoredEmail
@@ -119,12 +120,13 @@ class PollMailbox:
         email = StoredEmail(str(uuid.uuid4()), thread_id, provider, now, mail)
         await uow.emails.add(email)
         # Ids only: the content stays here until privacy-service has pseudonymised it.
-        uow.events.record(
-            EmailReceived(
-                email_id=email.id, thread_id=thread_id, provider=provider, received_at=mail.received_at
-            ),
-            actor="mail-service",
-        )
+        with span("email.received", email_id=email.id):  # a new mail starts the case's trace
+            uow.events.record(
+                EmailReceived(
+                    email_id=email.id, thread_id=thread_id, provider=provider, received_at=mail.received_at
+                ),
+                actor="mail-service",
+            )
         return 1
 
 

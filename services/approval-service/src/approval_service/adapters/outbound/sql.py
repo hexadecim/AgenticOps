@@ -10,10 +10,24 @@ from opspilot_common.events import EventEnvelope, Outbox, inbox_table, outbox_ta
 from opspilot_common.events.catalogue import Gate
 from opspilot_common.events.envelope import EventPayload
 from opspilot_common.logging import correlation_id
-from sqlalchemy import JSON, Column, DateTime, Integer, MetaData, String, Table, Text, insert, select, update
+from sqlalchemy import (
+    JSON,
+    Column,
+    DateTime,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    Text,
+    case,
+    func,
+    insert,
+    select,
+    update,
+)
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ...domain.approval import Approval, Outcome, Status
+from ...domain.approval import Approval, Outcome, Status, WaitingStats
 from ...ports import ApprovalRepository, EventRecorder
 
 SERVICE = "approval-service"
@@ -25,6 +39,7 @@ class ApprovalTables:
         self.approvals = Table(
             "approvals",
             self.metadata,
+            Column("trace", String(64), nullable=True),
             Column("id", String(36), primary_key=True),
             Column("run_id", String(36), nullable=False, index=True),
             Column("thread_id", String(36), nullable=False, index=True),
@@ -69,6 +84,7 @@ def _row(a: Approval) -> dict[str, Any]:
         "severity": a.severity,
         "jira_key": a.jira_key,
         "proposal": a.proposal,
+        "trace": a.trace,
         "requested_at": a.requested_at,
         "decided_at": a.decided_at,
         "decided_by": a.decided_by,
@@ -109,6 +125,7 @@ def _approval(r: Any) -> Approval:
         reminded_at=_aware(r.reminded_at),
         health=r.health,
         health_detail=r.health_detail,
+        trace=r.trace,
     )
 
 
@@ -120,11 +137,23 @@ class SqlApprovalRepository:
         row = (await self._s.execute(select(self._t).where(self._t.c.id == approval_id))).first()
         return _approval(row) if row else None
 
+    async def get_for_decision(self, approval_id: str) -> Approval | None:
+        query = select(self._t).where(self._t.c.id == approval_id).with_for_update()
+        row = (await self._s.execute(query)).first()
+        return _approval(row) if row else None
+
     async def add(self, approval: Approval) -> None:
         await self._s.execute(insert(self._t).values(id=approval.id, **_row(approval)))
 
     async def save(self, approval: Approval) -> None:
         await self._s.execute(update(self._t).where(self._t.c.id == approval.id).values(**_row(approval)))
+
+    async def decided(self, *, gate: Gate | None = None, limit: int = 200) -> list[Approval]:
+        query = select(self._t).where(self._t.c.decided_at.is_not(None))
+        if gate:
+            query = query.where(self._t.c.gate == gate.value)
+        rows = await self._s.execute(query.order_by(self._t.c.decided_at.desc()).limit(limit))
+        return [_approval(r) for r in rows]
 
     async def list(
         self, *, statuses: set[Status], gate: Gate | None = None, limit: int = 200
@@ -134,6 +163,24 @@ class SqlApprovalRepository:
             query = query.where(self._t.c.gate == gate.value)
         rows = await self._s.execute(query.order_by(self._t.c.requested_at).limit(limit))
         return [_approval(r) for r in rows]
+
+    async def waiting(self) -> WaitingStats:
+        t = self._t
+        sev1 = func.sum(case((t.c.severity == "sev1", 1), else_=0))
+        rows = (
+            await self._s.execute(
+                select(t.c.gate, func.count(), func.min(t.c.requested_at), sev1)
+                .where(t.c.status == Status.PENDING.value)
+                .group_by(t.c.gate)
+            )
+        ).all()
+        oldest = min((_aware(r[2]) for r in rows), default=None)  # type: ignore[type-var]
+        return WaitingStats(
+            total=sum(r[1] for r in rows),
+            by_gate={r[0]: r[1] for r in rows},
+            oldest_requested_at=oldest,
+            sev1=sum(int(r[3] or 0) for r in rows),
+        )
 
     async def latest_for_run(self, run_id: str, gate: Gate) -> Approval | None:
         t = self._t

@@ -15,3 +15,41 @@ jobs:
       - run: uv sync --all-packages
       - run: make lint
       - run: make test
+
+  # Real Postgres, RabbitMQ, Redis and Toxiproxy: migrations, chaos on every breaker, every package's tests on Postgres.
+  system:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --all-packages
+      - run: make test-infra-up
+      - run: make test-system
+      - run: make test-postgres
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: uv sync --all-packages
+      - run: npm ci
+        working-directory: frontend
+      - run: npm test
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      - run: npm run e2e:a11y
+        working-directory: frontend
+      - run: make test-infra-up
+      - run: npm run e2e:sign-in
+        working-directory: frontend

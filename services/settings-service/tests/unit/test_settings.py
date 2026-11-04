@@ -4,6 +4,7 @@ import pytest
 from settings_service.application import GetSection, RunConnectionTest, SaveSection
 from settings_service.domain.catalogue import JIRA, MAILBOX
 from settings_service.domain.errors import InvalidSettingsError, VersionConflictError
+from settings_service.domain.targets import TargetPolicy
 from settings_service.ports import Check, ConnectionReport
 
 from ..conftest import IMAP_VALUES, FixedClock, World
@@ -111,3 +112,35 @@ async def test_test_reports_missing_fields_instead_of_calling_out(world: World) 
     )
     assert not report.ok and tester.seen is None
     assert {c.name for c in report.checks} >= {"Account email", "API token", "Project key"}
+
+
+@pytest.mark.parametrize(
+    ("allowed", "url", "ok"),
+    [
+        ("", "http://169.254.169.254", True),  # no list: as before
+        ("acme.atlassian.net", "https://acme.atlassian.net", True),
+        (".atlassian.net", "https://acme.atlassian.net", True),
+        (".atlassian.net", "https://atlassian.net.evil.example", False),
+        ("acme.atlassian.net", "http://169.254.169.254/latest/meta-data", False),
+        ("acme.atlassian.net", "http://acme.atlassian.net@169.254.169.254", False),
+    ],
+)
+def test_target_policy_limits_where_settings_may_point(allowed: str, url: str, ok: bool) -> None:
+    values, _ = JIRA.normalise(
+        {"base_url": url, "email": "a@example.test", "project_key": "KAN", "issue_type": "Incident"},
+        {"api_token": "t"},
+    )
+    policy = TargetPolicy.parse(allowed)
+    if ok:
+        policy.check(JIRA, values)
+    else:
+        with pytest.raises(InvalidSettingsError) as err:
+            policy.check(JIRA, values)
+        assert "base_url" in err.value.errors
+
+
+def test_target_policy_covers_host_fields() -> None:
+    values, _ = MAILBOX.normalise({**IMAP_VALUES, "imap_host": "internal.db.local"}, {"password": "p"})
+    with pytest.raises(InvalidSettingsError) as err:
+        TargetPolicy.parse(".example.com").check(MAILBOX, values)
+    assert "imap_host" in err.value.errors

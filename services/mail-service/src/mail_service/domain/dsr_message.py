@@ -23,6 +23,7 @@ class DsrMessage:
     status: OutgoingStatus = OutgoingStatus.PENDING
     tries: int = 0
     detail: str | None = None
+    trace: str | None = None  # W3C trace context of the data request
 
     def claim(self) -> None:
         self.status, self.tries = OutgoingStatus.SENDING, self.tries + 1

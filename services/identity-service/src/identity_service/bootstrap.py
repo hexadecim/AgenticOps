@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import timedelta
 
-from opspilot_common.auth import Principal, Role, TokenVerifier
+from opspilot_common.auth import AuthKeys, Principal, Role
 from opspilot_common.resilience import ResilienceRegistry, redis_registry
 from opspilot_common.web import principal_dependency, require_roles
 from redis.asyncio import Redis
@@ -65,6 +65,7 @@ def build_container(
     clock: Clock | None = None,
     schema: str | None = None,
 ) -> Container:
+    keys = AuthKeys.load("identity-service", settings.jwt_secret, settings.auth_keys_dir)
     engine = engine or create_async_engine(settings.database_url, pool_pre_ping=True)
     tables = IdentityTables(schema=settings.db_schema if schema is None else schema or None)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -76,10 +77,10 @@ def build_container(
     hasher, totp = Argon2PasswordHasher(), PyOtpTotpProvider(settings.totp_issuer)
     cipher = FernetSecretCipher(settings.fernet_key)
     challenges = JwtChallengeTokens(settings.jwt_secret, timedelta(minutes=settings.challenge_minutes))
-    session_tokens = JwtSessionIssuer(settings.jwt_secret, timedelta(minutes=settings.session_minutes))
+    session_tokens = JwtSessionIssuer(keys, timedelta(minutes=settings.session_minutes))
     lockout, password_policy = LockoutPolicy(), PasswordPolicy()
     registry = redis_registry(Redis.from_url(settings.redis_url), settings.resilience_config)
-    current = principal_dependency(TokenVerifier(settings.jwt_secret))
+    current = principal_dependency(keys.session_verifier())
 
     return Container(
         settings=settings,

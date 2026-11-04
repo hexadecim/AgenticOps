@@ -44,6 +44,7 @@ class OutgoingMessage:
     status: OutgoingStatus = OutgoingStatus.PENDING
     attempts: int = 0
     detail: str | None = None
+    trace: str | None = None  # W3C trace context of the case
 
     @property
     def display_token(self) -> str:

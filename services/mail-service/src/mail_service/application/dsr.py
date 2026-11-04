@@ -9,6 +9,7 @@ from collections.abc import Callable
 import structlog
 from opspilot_common.auth.roles import Role
 from opspilot_common.events.catalogue import DsrMessageResult, DsrSendRequested
+from opspilot_common.telemetry import current_traceparent, span
 
 from ..domain.dsr_message import DsrMessage
 from ..domain.errors import (
@@ -40,7 +41,9 @@ class QueueDsrMessage:
             if await uow.dsr_messages.exists(message_id):
                 return False
             now = self._clock.now()
-            await uow.dsr_messages.add(DsrMessage(message_id, p.dsr_id, p.kind, p.attempt, now, now))
+            await uow.dsr_messages.add(
+                DsrMessage(message_id, p.dsr_id, p.kind, p.attempt, now, now, trace=current_traceparent())
+            )
             await uow.commit()
         return True
 
@@ -71,7 +74,8 @@ class SendDsrMessages:
         async with self._uow() as uow:
             due = await uow.dsr_messages.due(self._clock.now(), self._batch)
         for row in due:
-            await self._send_one(row)
+            with span("mail.send_dsr", traceparent=row.trace, dsr_id=row.dsr_id):
+                await self._send_one(row)
         return len(due)
 
     async def _send_one(self, row: DsrMessage) -> None:
@@ -81,10 +85,11 @@ class SendDsrMessages:
             row.failed("The configured mailbox cannot send email.")
             await self._finish(row)
             return
-        row.claim()
         async with self._uow() as uow:
-            await uow.dsr_messages.save(row)
+            claimed = await uow.dsr_messages.claim(row)
             await uow.commit()
+        if not claimed:
+            return  # another sender has it
         try:
             await sender.send(await self._source.outbound(row.dsr_id, row.kind))
         except (DetokeniseUnavailableError, MailboxUnavailableError) as exc:

@@ -8,6 +8,8 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..telemetry import current_traceparent
+
 
 def _now() -> datetime:
     return datetime.now(UTC)
@@ -31,6 +33,8 @@ class EventEnvelope(BaseModel):
     correlation_id: str | None = None
     causation_id: str | None = None
     actor: str | None = Field(default=None, description="User id or agent name that caused the event")
+    # W3C trace context of the work that wrote the event, so a consumer continues the same trace.
+    traceparent: str | None = Field(default_factory=current_traceparent)
     payload: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod

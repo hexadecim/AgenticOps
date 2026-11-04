@@ -18,7 +18,7 @@ from ..resilience import ResilienceRegistry
 from .breaker_listener import BreakerEventListener
 from .outbox import OutboxRelay
 from .ports import EventHandler
-from .rabbitmq import RabbitConnection, RabbitConsumer, RabbitPublisher
+from .rabbitmq import RabbitConnection, RabbitConsumer, RabbitPublisher, TransientConsumer
 
 log = structlog.get_logger(__name__)
 
@@ -38,6 +38,7 @@ class EventRuntime:
         self.publisher = RabbitPublisher(self._connection, registry.get("rabbitmq"))
         self._relays: list[OutboxRelay] = []
         self._consumers: list[tuple[str, Sequence[str], EventHandler]] = []
+        self._live: list[tuple[str, Sequence[str], EventHandler]] = []
         self._relay_interval = relay_interval
         self._max_backoff = max_backoff
         self._task: asyncio.Task[None] | None = None
@@ -51,6 +52,10 @@ class EventRuntime:
 
     def add_consumer(self, purpose: str, bindings: Sequence[str], handler: EventHandler) -> None:
         self._consumers.append((f"{self.service}.{purpose}", bindings, handler))
+
+    def add_live_consumer(self, purpose: str, bindings: Sequence[str], handler: EventHandler) -> None:
+        """Notifications for whoever is connected now: per process, gone when the process is."""
+        self._live.append((f"{self.service}.{purpose}", bindings, handler))
 
     async def start(self) -> None:
         self._task = asyncio.create_task(self._run(), name=f"{self.service}-events")
@@ -67,6 +72,8 @@ class EventRuntime:
         await self._connect_with_backoff()
         for queue, bindings, handler in self._consumers:
             await RabbitConsumer(self._connection, queue, bindings, handler).start()
+        for purpose, bindings, handler in self._live:
+            await TransientConsumer(self._connection, purpose, bindings, handler, replaces=purpose).start()
         while True:
             for relay in self._relays:
                 try:

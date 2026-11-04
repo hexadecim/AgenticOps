@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import os
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", extra="ignore", secrets_dir=os.environ.get("SECRETS_DIR")
+    )
 
     database_url: str = "postgresql+asyncpg://mail_svc:mail_dev_password@localhost:5432/opspilot"
     db_schema: str = "mail"
@@ -13,7 +17,8 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     settings_url: str = "http://localhost:8002"
     privacy_url: str = "http://localhost:8004"
-    jwt_secret: str = Field(min_length=32)
+    jwt_secret: str = ""  # development; production uses auth_keys_dir (checked by AuthKeys.load)
+    auth_keys_dir: str | None = None
     resilience_config: str | None = None
     log_json: bool = True
     poller_enabled: bool = True

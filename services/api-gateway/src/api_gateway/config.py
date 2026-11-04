@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import os
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", extra="ignore", secrets_dir=os.environ.get("SECRETS_DIR")
+    )
 
     identity_url: str = "http://localhost:8001"
     settings_url: str = "http://localhost:8002"
@@ -19,7 +23,8 @@ class Settings(BaseSettings):
     rabbitmq_url: str = "amqp://opspilot:opspilot@localhost:5672/"
     live_events: bool = True  # relay approval/run/jira events to browsers (SSE)
     redis_url: str = "redis://localhost:6379/0"
-    jwt_secret: str = Field(min_length=32)
+    jwt_secret: str = ""  # development; production uses auth_keys_dir (checked by AuthKeys.load)
+    auth_keys_dir: str | None = None
     resilience_config: str | None = None
     cookie_secure: bool = False  # True behind HTTPS in production
     sign_in_limit_per_minute: int = 10

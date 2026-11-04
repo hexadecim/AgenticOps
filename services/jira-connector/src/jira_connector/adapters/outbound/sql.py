@@ -61,6 +61,7 @@ class JiraTables:
             Column("last_error", Text, nullable=True),
             Column("created_at", DateTime(timezone=True), nullable=False),
             Column("next_attempt_at", DateTime(timezone=True), nullable=False, index=True),
+            Column("trace", String(64), nullable=True),
         )
         self.outbox = outbox_table(self.metadata)
         self.inbox = inbox_table(self.metadata)
@@ -135,6 +136,7 @@ class SqlJobRepository:
             attempts=r.attempts,
             issue_key=r.issue_key,
             last_error=r.last_error,
+            trace=r.trace,
         )
 
     def _row(self, j: Job) -> dict[str, Any]:
@@ -151,6 +153,7 @@ class SqlJobRepository:
             "last_error": j.last_error,
             "created_at": j.created_at,
             "next_attempt_at": j.next_attempt_at,
+            "trace": j.trace,
         }
 
     async def get(self, job_id: str) -> Job | None:

@@ -6,10 +6,26 @@ from typing import Any
 
 import httpx
 
+from ..telemetry import inject_traceparent
 from .errors import DependencyTimeoutError, DependencyUnavailableError, DependencyUnreachableError
 from .resilient import ResilienceRegistry, Resilient
 
 _IDEMPOTENT_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "PUT", "DELETE"})
+# Our own services join the caller's trace. Third parties (Jira, Google, Microsoft) never see trace ids.
+_INTERNAL = frozenset(
+    {
+        "agent-orchestrator",
+        "approval-service",
+        "audit-service",
+        "identity-service",
+        "jira-connector",
+        "mail-service",
+        "ops-service",
+        "privacy-service",
+        "reporting-service",
+        "settings-service",
+    }
+)
 
 
 class ResilientHttpClient:
@@ -47,6 +63,8 @@ class ResilientHttpClient:
 
         async def attempt() -> httpx.Response:
             name = self._resilient.name
+            if name in _INTERNAL:  # per attempt: the span of this call is current here
+                inject_traceparent(kwargs.setdefault("headers", {}))
             try:
                 response = await self._client.request(method, url, **kwargs)
             except httpx.TimeoutException as exc:

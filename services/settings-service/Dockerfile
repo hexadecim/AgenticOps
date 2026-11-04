@@ -12,4 +12,4 @@ RUN useradd --system --uid 10001 opspilot
 USER opspilot
 WORKDIR /app/services/settings-service
 EXPOSE 8002
-CMD ["sh", "-c", "alembic upgrade head && uvicorn --factory settings_service.main:create_app --host 0.0.0.0 --port 8002 --proxy-headers"]
+CMD ["sh", "-c", "if [ \"$RUN_MIGRATIONS\" != false ]; then alembic upgrade head; fi && exec uvicorn --factory settings_service.main:create_app --host 0.0.0.0 --port 8002 --proxy-headers"]

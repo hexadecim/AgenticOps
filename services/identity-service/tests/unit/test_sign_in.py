@@ -26,7 +26,7 @@ from identity_service.domain.errors import (
     WeakPasswordError,
 )
 from identity_service.domain.policies import LockoutPolicy, PasswordPolicy
-from opspilot_common.auth import Principal, Role, TokenVerifier
+from opspilot_common.auth import AuthKeys, Principal, Role, TokenVerifier
 
 from ..conftest import FakeClock, totp_code
 
@@ -40,7 +40,7 @@ class World:
         uow = lambda: InMemoryUnitOfWork(self.store, self.events)  # noqa: E731
         hasher, totp = Argon2PasswordHasher(), PyOtpTotpProvider()
         cipher, challenges = FernetSecretCipher(Fernet.generate_key().decode()), JwtChallengeTokens(SECRET)
-        sessions = JwtSessionIssuer(SECRET, timedelta(minutes=30))
+        sessions = JwtSessionIssuer(AuthKeys.load("identity-service", SECRET), timedelta(minutes=30))
         self.start = StartSignIn(uow, hasher, totp, cipher, challenges, clock, LockoutPolicy())
         self.complete = CompleteSignIn(
             uow, hasher, totp, cipher, challenges, sessions, clock, LockoutPolicy(), PasswordPolicy()

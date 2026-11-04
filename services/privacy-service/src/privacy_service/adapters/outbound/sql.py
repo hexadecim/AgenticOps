@@ -339,6 +339,11 @@ class SqlRequestRepository:
         row = (await self._s.execute(select(self._t).where(self._t.c.id == dsr_id))).first()
         return self._request(row) if row else None
 
+    async def get_for_update(self, dsr_id: str) -> DataRequest | None:
+        query = select(self._t).where(self._t.c.id == dsr_id).with_for_update()
+        row = (await self._s.execute(query)).first()
+        return self._request(row) if row else None
+
     async def all(self) -> list[DataRequest]:
         rows = await self._s.execute(select(self._t).order_by(self._t.c.id.desc()).limit(200))
         return [self._request(r) for r in rows]

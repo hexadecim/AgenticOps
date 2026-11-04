@@ -22,6 +22,7 @@ from opspilot_common.events.catalogue import (
     MessageSent,
     RunStatusChanged,
 )
+from opspilot_common.telemetry import current_traceparent, span
 
 from ..domain.approval import VIEWERS, Approval, Status
 from ..domain.errors import NotAllowedError, NotFoundError
@@ -58,6 +59,7 @@ class RecordRequest:
                     severity=p.severity,
                     jira_key=p.jira_key,
                     proposal=p.proposal,
+                    trace=current_traceparent(),
                 )
             )
             await uow.commit()
@@ -76,25 +78,26 @@ class Decide:
         edits: dict[str, Any] | None = None,
     ) -> Approval:
         async with self._uow() as uow:
-            approval = await uow.approvals.get(approval_id)
+            approval = await uow.approvals.get_for_decision(approval_id)
             if approval is None:
                 raise NotFoundError(approval_id)
             if approval.decide(principal, decision, reason=reason, edits=edits or {}, now=self._clock.now()):
                 await uow.approvals.save(approval)
-                uow.events.record(
-                    ApprovalDecided(
-                        approval_id=approval.id,
-                        run_id=approval.run_id,
-                        thread_id=approval.thread_id,
-                        gate=approval.gate,
-                        decision=decision,
-                        decided_by=principal.user_id,
-                        decided_by_role=approval.decided_by_role or "",
-                        reason=approval.reason,
-                        edits=approval.edits,
-                    ),
-                    actor=principal.user_id,
-                )
+                with span("approval.decided", traceparent=approval.trace, approval_id=approval.id):
+                    uow.events.record(
+                        ApprovalDecided(
+                            approval_id=approval.id,
+                            run_id=approval.run_id,
+                            thread_id=approval.thread_id,
+                            gate=approval.gate,
+                            decision=decision,
+                            decided_by=principal.user_id,
+                            decided_by_role=approval.decided_by_role or "",
+                            reason=approval.reason,
+                            edits=approval.edits,
+                        ),
+                        actor=principal.user_id,
+                    )
                 await uow.commit()
             return approval
 
@@ -116,21 +119,19 @@ class ListApprovals:
         self, principal: Principal, *, decided: bool = False, gate: Gate | None = None
     ) -> QueueView:
         _require_viewer(principal)
-        statuses = {Status.APPROVED, Status.REJECTED, Status.SENT_BACK} if decided else {Status.PENDING}
         async with self._uow() as uow:
-            items = await uow.approvals.list(statuses=statuses, gate=gate)
-            pending = (
-                items if not decided and gate is None else await uow.approvals.list(statuses={Status.PENDING})
-            )
-        now = self._clock.now()
-        if decided:
-            items = sorted(items, key=lambda a: a.decided_at or a.requested_at, reverse=True)
+            if decided:
+                items = await uow.approvals.decided(gate=gate)
+            else:
+                items = await uow.approvals.list(statuses={Status.PENDING}, gate=gate)
+            waiting = await uow.approvals.waiting()
+        oldest = waiting.oldest_requested_at
         return QueueView(
             items=items,
-            waiting=len(pending),
-            waiting_by_gate={g.value: sum(a.gate is g for a in pending) for g in Gate},
-            oldest_waiting_seconds=int((now - pending[0].requested_at).total_seconds()) if pending else None,
-            sev1_waiting=sum(a.severity == "sev1" for a in pending),
+            waiting=waiting.total,
+            waiting_by_gate={g.value: waiting.by_gate.get(g.value, 0) for g in Gate},
+            oldest_waiting_seconds=int((self._clock.now() - oldest).total_seconds()) if oldest else None,
+            sev1_waiting=waiting.sev1,
         )
 
 

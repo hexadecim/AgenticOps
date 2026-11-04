@@ -9,7 +9,8 @@ from fastapi import FastAPI
 from opspilot_common.events import EventRuntime, Inbox
 from opspilot_common.logging import configure_logging
 from opspilot_common.subjects_http import ERASURE_BINDINGS, erasure_handler, subject_router
-from opspilot_common.web import CorrelationIdMiddleware, health_routes
+from opspilot_common.telemetry.setup import setup_tracing
+from opspilot_common.web import NO_NATIVE_TELEMETRY, CorrelationIdMiddleware, health_routes
 
 from .adapters.inbound.events import BINDINGS, on_event
 from .adapters.inbound.http import build_router, install_error_handlers
@@ -24,6 +25,7 @@ def create_app(
     if container is None:
         settings = Settings()
         configure_logging(SERVICE, json=settings.log_json)
+        setup_tracing(SERVICE)
         container = build_container(settings)
 
     @asynccontextmanager
@@ -61,7 +63,9 @@ def create_app(
             await close()
         await container.engine.dispose()
 
-    app = FastAPI(title="OpsPilot approval-service", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(
+        telemetry=NO_NATIVE_TELEMETRY, title="OpsPilot approval-service", version="0.1.0", lifespan=lifespan
+    )
     app.add_middleware(CorrelationIdMiddleware)
     install_error_handlers(app)
     app.include_router(build_router(container))

@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from opspilot_common.auth import Principal, ServiceTokenIssuer, ServiceTokenVerifier, TokenVerifier
+from opspilot_common.auth import AuthKeys, Principal
 from opspilot_common.resilience import ResilienceRegistry, ResilientHttpClient, redis_registry
 from opspilot_common.web import principal_dependency, service_dependency
 from redis.asyncio import Redis
@@ -76,6 +76,7 @@ def build_container(
     executors: dict[str, ActionExecutor] | None = None,
     clock: Clock | None = None,
 ) -> Container:
+    keys = AuthKeys.load(SERVICE, settings.jwt_secret, settings.auth_keys_dir)
     engine = engine or create_async_engine(settings.database_url, pool_pre_ping=True)
     tables = OpsTables(schema=settings.db_schema if schema is None else schema or None)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -89,7 +90,7 @@ def build_container(
     if source is None:
         http = ResilientHttpClient.from_registry(registry, "settings-service", base_url=settings.settings_url)
         closers.append(http.aclose)
-        source = SettingsServiceSource(http, ServiceTokenIssuer(settings.jwt_secret, SERVICE))
+        source = SettingsServiceSource(http, keys.service_issuer())
     if embedder is None:
         ollama = OllamaEmbedder(registry)
         closers.append(ollama.aclose)
@@ -124,7 +125,7 @@ def build_container(
         queue_fix=QueueFix(uow, active, world, clock),
         run_fixes=run_fixes,
         worker=OpsWorker(run_fixes, library, active, health, probe_every=settings.probe_interval_seconds),
-        require_service=service_dependency(ServiceTokenVerifier(settings.jwt_secret), "agent-orchestrator"),
-        current_user=principal_dependency(TokenVerifier(settings.jwt_secret)),
+        require_service=service_dependency(keys.service_verifier(), "agent-orchestrator"),
+        current_user=principal_dependency(keys.session_verifier()),
         closers=closers,
     )

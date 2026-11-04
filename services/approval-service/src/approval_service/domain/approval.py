@@ -60,6 +60,14 @@ class Outcome(StrEnum):
     MESSAGE_FAILED = "message_failed"  # reached nobody: a person has to act
 
 
+@dataclass(frozen=True, slots=True)
+class WaitingStats:
+    total: int
+    by_gate: dict[str, int]
+    oldest_requested_at: datetime | None
+    sev1: int
+
+
 @dataclass(slots=True)
 class Approval:
     id: str
@@ -85,6 +93,7 @@ class Approval:
     reminded_at: datetime | None = None
     health: str | None = None  # T2 after the fix ran: "resolved" | "fix_failed" (the health re-check)
     health_detail: str | None = None
+    trace: str | None = None  # W3C trace context of the case: what follows a decision continues it
 
     def decide(
         self,

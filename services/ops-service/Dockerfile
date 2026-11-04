@@ -13,4 +13,4 @@ USER opspilot
 WORKDIR /app/services/ops-service
 COPY deploy/ops /etc/opspilot/ops
 EXPOSE 8010
-CMD ["sh", "-c", "alembic upgrade head && uvicorn --factory ops_service.main:create_app --host 0.0.0.0 --port 8010 --proxy-headers"]
+CMD ["sh", "-c", "if [ \"$RUN_MIGRATIONS\" != false ]; then alembic upgrade head; fi && exec uvicorn --factory ops_service.main:create_app --host 0.0.0.0 --port 8010 --proxy-headers"]

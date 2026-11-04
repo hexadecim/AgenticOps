@@ -6,7 +6,7 @@ decisions: [adr/](adr/). Wireframe: https://claude.ai/artifact/9MVMvgd7L4LeEs1yP
 
 **Legend:** `[x]` done and verified · `[~]` partly done (see note) · `[ ]` not started
 
-_Last updated: 2026-11-03_
+_Last updated: 2026-11-04_
 
 ## Summary
 
@@ -20,9 +20,9 @@ _Last updated: 2026-11-03_
 | 4 | Agent core + T1 gate → Jira (**MVP**) | ✅ Done | 31 new service tests · live: 2 emails → Approvals → approved in the UI → KAN-18, KAN-19 created; audit chain complete |
 | 5 | reporting-service, Dashboard, Audit log UI | ✅ Done | 5 service + 3 shared + 1 gateway tests · live: dashboard from real history, breaker trip/recovery shown |
 | 6 | ops-service, diagnostics, T2 production-fix gate | ✅ Done | 22 ops + 11 orchestrator + 4 approval + 1 gateway tests · live in the UI: T1 → KAN-29 → T2 → resolved; Platform health probes; T2 reminder fired |
-| 7 | Comms agent, T3 customer-message gate, outbound email | ⬜ | – |
-| 8 | Privacy / GDPR screens and retention jobs | ⬜ | – |
-| 9 | Hardening: chaos tests, tracing, load, production config | ⬜ | – |
+| 7 | Comms agent, T3 customer-message gate, outbound email | 🟡 Merged | Live on a throwaway stack; follow-up path (#29) and real Jira open |
+| 8 | Privacy / GDPR screens and retention jobs | 🟡 Merged | Live on a throwaway stack; real stack and retention periods (#35) open |
+| 9 | Hardening: chaos tests, tracing, load, production config | 🟡 Built | 92 system + 31 component + 61 accessibility tests + load run; see below |
 
 Progress: **8 of 11** milestones done (0–6; 4 = **MVP**). 254 automated tests.
 
@@ -442,7 +442,7 @@ and the SPA in headless Chrome. **Jira was a local stub**, and the dev database 
 resolution said "the service restarts in about a minute" after the fact; the ETA check missed "in about …"; sent-back
 drafts read "all checks pass" in the Decided list.
 
-## Milestone 8 — Privacy / GDPR 🟡 built and run live on a throwaway stack; not on the real stack, nothing committed
+## Milestone 8 — Privacy / GDPR 🟡 merged (PR #5); run live on a throwaway stack, not on the real stack
 
 Design: [ADR-0008](adr/0008-data-requests-and-retention.md). Live run 2026-11-04 on a **throwaway compose project**
 (`opspilot-m8`, own empty database, GreenMail, since removed): real deepseek-r1:8b, privacy-service, RabbitMQ, SMTP/IMAP and
@@ -471,14 +471,49 @@ the SPA in headless Chrome. **Jira was a local stub**; the dev database and Gmai
 the export went to the address as typed; a store being down returned 503, which would have tripped the gateway's breaker on a healthy
 privacy-service (now 409, and mail-service retries later).
 
-## Milestone 9 — Hardening ⬜
+## Milestone 9 — Hardening 🟡 built and tested; on branch `feat/m9-hardening`, not merged
 
-- [ ] Automated chaos tests via Toxiproxy for every breaker (today only the manual demo script)
-- [ ] OpenTelemetry tracing across services into Jaeger (container runs; no instrumentation yet)
-- [ ] Integration test suite against real Postgres/RabbitMQ in CI (service tests use SQLite today)
-- [ ] Frontend tests (component + one end-to-end sign-in), accessibility audit
-- [ ] Production config: HTTPS, `cookie_secure=true`, RS256 keys, secrets manager, per-service DB passwords
-- [ ] Load test of poller and approval queue
+Design: [ADR-0009](adr/0009-production-hardening.md). Test infrastructure: `deploy/docker-compose.test.yml` (project
+`opspilot-test`, own ports, memory-only database; the dev stack is not touched). `make test-infra-up`, then the targets below.
+
+- [x] Automated chaos tests via Toxiproxy for every breaker — `tests/system/test_chaos.py`: every block of
+      `resilience.yaml` plus a `probe-target-*`, refused connections and timeouts, with the configured thresholds and retries
+      and shortened waits, in real Redis; half-open failure, shared circuit, 4xx, bulkhead. Tests the breakers, not each
+      service's fallback: those stay covered by service tests and earlier live runs
+- [~] OpenTelemetry tracing across services into Jaeger — spans carry ids only (a test checks), one trace per case
+      across bus and workers, audit correlation id = trace id. Seen live: sign-in across 4 services on the production stack.
+      **One whole case (T1, T2, T3) in one trace: not yet confirmed**
+- [x] Integration test suite against real Postgres/RabbitMQ in CI — `make test-system` (92 tests, includes chaos) and
+      `make test-postgres` (every package's own tests on Postgres, unchanged). In `.github/workflows/ci.yml`; **has not run on
+      GitHub yet**
+- [x] Frontend tests (component + one end-to-end sign-in) — 31 component tests (Vitest); `e2e/sign-in.spec.ts`: Chrome, real
+      gateway, identity-service, Postgres: wrong password, enrolment, session cookie, reload, sign out
+- [~] Accessibility audit — automated only: axe-core WCAG 2.1 A/AA on all 14 screens in both themes and the open menu in
+      Chrome; 320 px reflow; visible keyboard focus; menu by keyboard; a planted fault proves the audit catches faults. 61 checks, no
+      violations found. **Not done: a person with a screen reader.** Automated tools find only part of WCAG
+- [~] Production config: HTTPS, `cookie_secure=true`, RS256 keys, per-service DB passwords — `make prod-secrets`, `make prod-up`.
+      25 checks on a throwaway production stack on localhost: redirect + HSTS, only nginx published, no secret in any container's
+      environment, Secure cookie, RS256, forged tokens refused (dev secret, public key as HS256, a service naming another), dev DB
+      password refused, audit service cannot change or unlock its log. **Secrets manager: the file contract is in place; which
+      product is yours to choose. Certificate is self-signed until you replace it**
+- [x] Load test of poller and approval queue — `make test-load`, real Postgres/IMAP/SMTP, not in CI. Poller: 1,000 mails on top
+      of 20,000 stored in 65 s (15/s), slowest cycle 8 s, no duplicates after a read-position reset. Queue: 5,000 waiting + 20,000
+      decided, 20 readers: p95 426 ms; decided p95 532 ms. Measured on this PC with other containers running; GreenMail, not a real
+      provider. Model time not included: triage stays ~70 s per email
+
+**Found by these tests and fixed:**
+- **Three people deciding one approval at once produced three `approval.decided` events, approve and reject together** (rule 6).
+  Row lock. No test on SQLite could show this.
+- **Five stores acknowledging one erasure lost four answers, leaving the request erasing forever.** Same fix, also on every data
+  request step and on runs. The test fails with the lock removed.
+- **Redis down stopped every outbound call in every service.** State is now kept locally during an outage.
+- **The queue never counted past 200, and the Decided tab showed the oldest 200 decisions.** Real counts in SQL, newest first, and the
+  screen says when it shows only part of the queue.
+- **A closed RabbitMQ channel did not count against the breaker** and rolled back what the relay had already published.
+- **A second mail-service replica could send a message twice.** Sends are claimed by a conditional UPDATE.
+- **Events from consumers and workers had no correlation id**, so the audit log could not link a case. An unbounded client
+  `X-Correlation-ID` would also have failed on the audit column's 64 characters.
+- FastAPI's built-in telemetry would have exported URL queries (a search term can be a name) and exception messages. Turned off.
 
 ---
 
@@ -488,26 +523,26 @@ privacy-service (now 409, and mail-service retries later).
 |---|---|---|---|
 | 1 | ~~Gateway rate limit keyed on nginx's address~~ | ~~All users shared one bucket~~ | **Fixed in 1b** (verified live) |
 | 2 | Nothing committed; no git remote | CI has never run | Commit milestone 0 + 1a when you're ready, then add a remote |
-| 3 | Service DB passwords are dev defaults in `init.sql` and compose | Fine locally, not for any shared environment | Milestone 9 |
-| 4 | Alembic migrations run on every identity container start | Race if scaled to several replicas | Separate migration job in milestone 9 |
+| 3 | ~~Service DB passwords are dev defaults~~ | Still the defaults in development | **Fixed for production in 9**: random per role |
+| 4 | ~~Alembic migrations run on every container start~~ | Still so in development | **Fixed for production in 9**: one job per service |
 | 5 | `make test` runs one pytest process per package (each service has its own `tests` package) | Slightly slower | Acceptable |
 | 6 | Wireframe screens for later milestones show placeholders | Expected | Filled milestone by milestone |
-| 8 | Admin-entered URLs (Jira site, Ollama address) are fetched by settings-service | Admins are trusted; an admin could point probes at internal hosts | Restrict to http(s) today; add an allow-list option in milestone 9 |
+| 8 | ~~Admin-entered URLs are fetched by settings-service~~ | Admins could point probes at internal hosts | **Fixed in 9**: `ALLOWED_TARGET_HOSTS`, off until set. Probes in ops-service read the same saved settings |
 | 9 | Breaker state is written to Redis only on failures | Healthy dependencies show "No failures recorded" rather than "closed" | Acceptable; reads as healthy |
-| 7 | Demo queues `demo.*` left in RabbitMQ by `scripts/demo_foundations.py` | Cosmetic | Delete via RabbitMQ UI or ignore |
+| 7 | ~~Demo queues left by the demo script~~ | ~~Cosmetic~~ | **Script removed in 9.** Queues `demo.*` may remain in your dev RabbitMQ: delete them in its UI or ignore them |
 | 10 | ~~Demo script used and emptied `mail.outbox`~~ | ~~Would have deleted mail-service's real pending events~~ | **Fixed in 2**: demo uses `mail.demo_outbox`; the old demo table was dropped (with your OK) |
-| 11 | Service tokens use a key derived from the shared `JWT_SECRET` | Any service holding the secret could mint a token naming another service | Per-service RS256 keys with session tokens (milestone 9) |
-| 12 | The demo script still publishes fake `email.received` events to the real exchange | From milestone 4 the orchestrator would receive ids that do not exist (→ 404 → DLQ) | Don't run the demo after milestone 4, or switch it to a demo event type |
-| 13 | Audit triggers can be disabled by the table owner or a superuser (`ALTER TABLE … DISABLE TRIGGER`) | Tampering is possible for a DB administrator | Separate owner role, INSERT/SELECT grant only, optional hash chain (milestone 9) |
-| 14 | privacy-service vault key is derived from the shared `FERNET_KEY` | Compromise of one service's env exposes the vault | Per-service keys from a secrets manager (milestone 9) |
+| 11 | ~~Service tokens use a key derived from a shared secret~~ | Still so in development | **Fixed for production in 9**: one RS256 key per service |
+| 12 | ~~The demo script publishes fake events~~ | ~~Ids that do not exist~~ | **Fixed in 9**: script removed; `tests/system` covers it on its own stack |
+| 13 | Audit triggers can be disabled by a superuser | Tampering is possible for a database administrator | **Owner separated in 9** (production): the service cannot. A superuser still can; a hash chain would show it. Not built |
+| 14 | ~~privacy-service vault key comes from a shared `FERNET_KEY`~~ | Still shared in development | **Fixed for production in 9**: one key per service |
 | 15 | Two first-time pseudonymisations of the same new person at the same moment | One fails on the vault's unique key (500); a retry succeeds | Acceptable; the orchestrator retries (milestone 4) |
 | 16 | Small spaCy models | Some names in free text are missed or capitalised words over-tokenised | Header identities + patterns carry most; consider larger models if the PC allows |
 | 17 | The mailbox now reads your real Gmail | Real mail is stored in `mail.emails` (30-day retention) and announced as events | Intended by your settings; switch back to the dev mailbox in Admin › Integrations for tests |
 | 18 | Every new Gmail message now runs through the local model (~25–60 s each) | Personal mail is triaged; mail the model misjudges as support would appear in Approvals | Reject such items; newsletters are `ignored`. Consider a sender allow-list or a dedicated support mailbox |
 | 19 | deepseek-r1:8b answers vary at temperature 0.6 | Severity and wording can differ between runs | Approver checks ("AI-generated"); edit-before-approve UI is deferred |
 | 20 | Two synthetic test emails were added for milestone 4 | One was stored directly in `mail.emails` (not via a mailbox) | Test data; removed by the 30-day retention job |
-| 21 | Live-event queue `api-gateway.live` is durable | If the gateway is down for long, notifications pile up in RabbitMQ | Use an exclusive auto-delete queue per replica (milestone 9) |
-| 22 | Service tests run on SQLite, so Postgres-only paths (pgvector `<=>`) are untested in CI | A pgvector query bug reached the live stack in M6 (fixed) | Integration suite on real Postgres (milestone 9) |
+| 21 | ~~Live-event queue is durable~~ | ~~Notifications pile up~~ | **Fixed in 9**: one exclusive queue per process; the old queue is deleted at start |
+| 22 | ~~Service tests run on SQLite only~~ | ~~A pgvector query bug reached the live stack in M6~~ | **Fixed in 9**: `make test-postgres`, `tests/system` |
 | 23 | Real Gmail backlog after the stack was off since 21 Oct: ~550 runs queued at ~70 s each | Takes hours; synthetic tests had to be moved to the front of the queue | Dedicated support mailbox or sender allow-list (see #18) |
 | 24 | deepseek-r1:8b fix choice can take ~4 min (reasoning hits the budget, then a retry without it) | T2 requests appear minutes after the ticket | Acceptable (background); consider thinking off for diagnostics |
 | 22 | Breaker events are published directly (not via an outbox) | A transition while RabbitMQ is down is not reported (still visible in Redis/metrics/logs) | Acceptable: health is a live signal; the System health page reads Redis |
@@ -522,4 +557,8 @@ privacy-service (now 409, and mail-service retries later).
 | 34 | Rectification, restriction and objection are tracked but carried out by hand | A restriction does not stop the agents from processing that person's new mail | Screen says so; automate when real requests need it |
 | 35 | Wireframe says audit log "90 days, then per client policy", but rule 8 forbids deleting it; tokenised emails and checkpoints have no agreed period | They are kept indefinitely | Client decision; schedule on screen says "Kept" |
 | 36 | Backups are outside erasure and retention | Erased data lives on in any backup until it expires | Define a backup policy before production |
-| 23 | Reporting has no event store | Read models built before a consumer existed need an outbox replay; a *new* read model inside an existing consumer cannot be backfilled that way (its inbox already holds the event ids) — probes avoid this by ops-service announcing their state at start-up | Add an event archive or rebuild command in milestone 9 |
+| 37 | Workers of orchestrator, jira-connector and ops-service assume one replica | A second replica would run jobs twice | Run one of each; a claim like mail-service's before scaling |
+| 38 | Redis has no password, and service-to-service traffic is plain HTTP inside the compose network | Fine on one host, not across hosts | TLS and a Redis password before splitting hosts |
+| 39 | Key rotation is manual | Replace files, restart; sessions end when the session key changes | Automate with your secrets manager |
+| 40 | Consumers handle one event at a time per queue | A slow handler delays that queue | Handlers are short today; watch queue depth in RabbitMQ |
+| 23 | Reporting has no event store | Read models built before a consumer existed need an outbox replay; a *new* read model inside an existing consumer cannot be backfilled that way (its inbox already holds the event ids) — probes avoid this by ops-service announcing their state at start-up | Add an event archive or rebuild command. **Not done in 9**: no read model needs one today |

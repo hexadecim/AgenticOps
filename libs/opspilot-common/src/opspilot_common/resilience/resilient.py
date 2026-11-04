@@ -12,6 +12,7 @@ from typing import TypeVar
 
 from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt, wait_exponential_jitter
 
+from ..telemetry import span
 from .breaker import CircuitBreaker
 from .bulkhead import Bulkhead
 from .clock import Clock
@@ -42,8 +43,9 @@ class Resilient:
 
     async def call(self, fn: Callable[[], Awaitable[T]], *, retry: bool = True) -> T:
         """Run `fn` under all policies. Pass `retry=False` for non-idempotent operations."""
-        async with self._bulkhead:
-            return await self.breaker.call(lambda: self._attempts(fn, retry))
+        with span(f"call {self.name}", dependency=self.name):
+            async with self._bulkhead:
+                return await self.breaker.call(lambda: self._attempts(fn, retry))
 
     async def call_with_fallback(
         self,

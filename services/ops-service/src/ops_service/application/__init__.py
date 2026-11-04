@@ -23,6 +23,7 @@ from opspilot_common.events.catalogue import (
     Gate,
     ProbeStatus,
 )
+from opspilot_common.telemetry import current_traceparent, span
 
 from ..domain import actions as allow_list
 from ..domain.diagnostics import (
@@ -371,7 +372,7 @@ class QueueFix:
             params = {**proposal.params, **(edited if isinstance(edited, dict) else {})}
             job = FixJob(
                 p.approval_id, p.run_id, p.thread_id, proposal.action, {k: str(v) for k, v in params.items()},
-                now, now, jira_key=proposal.jira_key, region=proposal.region,
+                now, now, jira_key=proposal.jira_key, region=proposal.region, trace=current_traceparent(),
             )  # fmt: skip
             try:
                 job.params = allow_list.validate(
@@ -422,7 +423,8 @@ class RunDueFixes:
         async with self._uow() as uow:
             jobs = await uow.jobs.due(self._clock.now(), self._batch)
         for job in jobs:
-            await self._run(job)
+            with span("ops.fix", traceparent=job.trace, job_id=job.id):
+                await self._run(job)
         return len(jobs)
 
     async def _run(self, job: FixJob) -> None:

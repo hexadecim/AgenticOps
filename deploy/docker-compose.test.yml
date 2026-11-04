@@ -1,0 +1,68 @@
+# Infrastructure for `make test-system` / `make test-postgres`. Its own project, ports and empty volumes:
+# never the dev database, RabbitMQ or mailbox. Ports are on localhost only.
+name: opspilot-test
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: opspilot
+      POSTGRES_PASSWORD: opspilot
+      POSTGRES_DB: opspilot
+    ports: ["127.0.0.1:55432:5432"]
+    tmpfs: ["/var/lib/postgresql/data"]
+    volumes:
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opspilot -d opspilot"]
+      interval: 2s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    ports: ["127.0.0.1:56379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      retries: 30
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: opspilot
+      RABBITMQ_DEFAULT_PASS: opspilot
+    ports: ["127.0.0.1:55672:5672"]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      retries: 30
+
+  # For the load test of the poller. Any user name logs in; the password must equal it.
+  devmail:
+    image: greenmail/standalone:2.1.2
+    environment:
+      GREENMAIL_OPTS: >-
+        -Dgreenmail.setup.test.imap -Dgreenmail.setup.test.smtp -Dgreenmail.hostname=0.0.0.0
+        -Dgreenmail.users=load:load-pass@opspilot.local -Dgreenmail.users.login=email
+    ports: ["127.0.0.1:53025:3025", "127.0.0.1:53143:3143"]
+
+  # Answers every request; the chaos tests put faults between a client and this.
+  upstream:
+    image: nginx:1.27-alpine
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/"]
+      interval: 2s
+      retries: 30
+
+  # Tests create proxies through its API. 58501-58503: HTTP upstream, RabbitMQ, Redis.
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    ports:
+      - "127.0.0.1:58474:8474"
+      - "127.0.0.1:58501:58501"
+      - "127.0.0.1:58502:58502"
+      - "127.0.0.1:58503:58503"
+    depends_on:
+      upstream: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      redis: { condition: service_healthy }

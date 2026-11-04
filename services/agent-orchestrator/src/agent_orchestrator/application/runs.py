@@ -21,6 +21,7 @@ from opspilot_common.events.catalogue import (
     MessageSent,
     RunStatusChanged,
 )
+from opspilot_common.telemetry import current_traceparent, span
 
 from ..domain.errors import (
     LlmUnavailableError,
@@ -59,7 +60,10 @@ class StartRun:
             if await uow.runs.by_email(p.email_id):
                 return None
             now = self._clock.now()
-            run = Run(str(uuid.uuid4()), p.email_id, p.thread_id, RunStatus.QUEUED, now, now, now)
+            run = Run(
+                str(uuid.uuid4()), p.email_id, p.thread_id, RunStatus.QUEUED, now, now, now,
+                trace=current_traceparent(),
+            )  # fmt: skip
             await uow.runs.add(run)
             uow.events.record(_status_event(run), actor=ACTOR)
             await uow.commit()
@@ -74,7 +78,7 @@ class RecordDecision:
 
     async def __call__(self, p: ApprovalDecided) -> bool:
         async with self._uow() as uow:
-            run = await uow.runs.get(p.run_id) or await uow.runs.by_approval(p.approval_id)
+            run = await uow.runs.get_for_update(p.run_id) or await uow.runs.by_approval(p.approval_id)
             if run is None or run.approval_id != p.approval_id:
                 return False
             decision = {
@@ -99,7 +103,7 @@ class RecordTicketResult:
 
     async def __call__(self, p: JiraIssueCreated | JiraIssueLinked | JiraIssueFailed) -> bool:
         async with self._uow() as uow:
-            run = (await uow.runs.get(p.run_id) if p.run_id else None) or (
+            run = (await uow.runs.get_for_update(p.run_id) if p.run_id else None) or (
                 await uow.runs.by_approval(p.approval_id) if p.approval_id else None
             )
             if run is None or "ticket" in run.results:
@@ -136,9 +140,9 @@ class RecordFixResult:
 
     async def __call__(self, p: ActionExecuted) -> bool:
         async with self._uow() as uow:
-            run = (await uow.runs.get(p.run_id) if p.run_id else None) or await uow.runs.by_approval(
-                p.approval_id
-            )
+            run = (
+                await uow.runs.get_for_update(p.run_id) if p.run_id else None
+            ) or await uow.runs.by_approval(p.approval_id)
             if run is None or run.approval_id != p.approval_id:
                 return False
             now = self._clock.now()
@@ -159,7 +163,7 @@ class RecordMessageResult:
 
     async def __call__(self, p: MessageSent | MessageFailed) -> bool:
         async with self._uow() as uow:
-            run = await uow.runs.get(p.run_id) if p.run_id else None
+            run = await uow.runs.get_for_update(p.run_id) if p.run_id else None
             if run is None or run.approval_id != p.approval_id:
                 return False
             if isinstance(p, MessageSent):
@@ -208,7 +212,8 @@ class AdvanceRuns:
             if run.status is RunStatus.WAITING_LLM and (wait := await self._circuit.retry_after()):
                 await self._still_paused(run, wait)  # the model's circuit is still open: do not even try
                 continue
-            await self._advance(run)
+            with span("run.advance", traceparent=run.trace, run_id=run.id):
+                await self._advance(run)
         return len(due)
 
     async def _still_paused(self, run: Run, seconds: float) -> None:
@@ -290,7 +295,7 @@ class AdvanceRuns:
     async def _save(self, run: Run, change: Callable[[Run], None], *, announce: bool = True) -> Run:
         """Apply the change to the stored run (results may have arrived meanwhile) and return it."""
         async with self._uow() as uow:
-            current = await uow.runs.get(run.id) or run
+            current = await uow.runs.get_for_update(run.id) or run
             change(current)
             if current.status is RunStatus.RESUMING:
                 announce = False  # internal step; the next real state is announced

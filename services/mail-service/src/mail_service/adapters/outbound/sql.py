@@ -83,6 +83,7 @@ class MailTables:
         self.outgoing = Table(
             "outgoing",
             self.metadata,
+            Column("trace", String(64), nullable=True),
             Column("id", String(36), primary_key=True),
             Column("message_id", String(36), nullable=False, index=True),
             Column("approval_id", String(36), nullable=False, index=True),
@@ -111,6 +112,7 @@ class MailTables:
         self.dsr_messages = Table(
             "dsr_messages",
             self.metadata,
+            Column("trace", String(64), nullable=True),
             Column("id", String(60), primary_key=True),
             Column("dsr_id", String(12), nullable=False),
             Column("kind", String(24), nullable=False),
@@ -237,7 +239,7 @@ def _outgoing(r: Any) -> OutgoingMessage:
         body=r.body, created_at=r.created_at.replace(tzinfo=r.created_at.tzinfo or UTC),
         next_try_at=r.next_try_at.replace(tzinfo=r.next_try_at.tzinfo or UTC),
         jira_key=r.jira_key, kind=r.kind, status=OutgoingStatus(r.status), attempts=r.attempts,
-        detail=r.detail,
+        detail=r.detail, trace=r.trace,
     )  # fmt: skip
 
 
@@ -257,9 +259,18 @@ class SqlOutgoingRepository:
                 email_token=message.email_token, name_token=message.name_token, subject=message.subject,
                 body=message.body, jira_key=message.jira_key, kind=message.kind, status=message.status.value,
                 attempts=message.attempts, detail=message.detail, created_at=message.created_at,
-                next_try_at=message.next_try_at,
+                next_try_at=message.next_try_at, trace=message.trace,
             )
         )  # fmt: skip
+
+    async def claim(self, message: OutgoingMessage) -> bool:
+        message.claim()
+        result = await self._s.execute(
+            update(self._t)
+            .where(self._t.c.id == message.id, self._t.c.status == OutgoingStatus.PENDING.value)
+            .values(status=message.status.value, attempts=message.attempts)
+        )
+        return int(result.rowcount or 0) == 1  # type: ignore[attr-defined]
 
     async def save(self, message: OutgoingMessage) -> None:
         await self._s.execute(
@@ -361,7 +372,7 @@ class SqlDsrMessageRepository:
     def _row(self, row: Any) -> DsrMessage:
         return DsrMessage(
             row.id, row.dsr_id, row.kind, row.attempt, _aware(row.created_at), _aware(row.next_try_at),  # type: ignore[arg-type]
-            OutgoingStatus(row.status), row.tries, row.detail,
+            OutgoingStatus(row.status), row.tries, row.detail, row.trace,
         )  # fmt: skip
 
     async def exists(self, message_id: str) -> bool:
@@ -374,9 +385,18 @@ class SqlDsrMessageRepository:
             insert(self._t).values(
                 id=message.id, dsr_id=message.dsr_id, kind=message.kind, attempt=message.attempt,
                 status=message.status.value, tries=message.tries, detail=message.detail,
-                created_at=message.created_at, next_try_at=message.next_try_at,
+                created_at=message.created_at, next_try_at=message.next_try_at, trace=message.trace,
             )
         )  # fmt: skip
+
+    async def claim(self, message: DsrMessage) -> bool:
+        message.claim()
+        result = await self._s.execute(
+            update(self._t)
+            .where(self._t.c.id == message.id, self._t.c.status == OutgoingStatus.PENDING.value)
+            .values(status=message.status.value, tries=message.tries)
+        )
+        return int(result.rowcount or 0) == 1  # type: ignore[attr-defined]
 
     async def save(self, message: DsrMessage) -> None:
         await self._s.execute(

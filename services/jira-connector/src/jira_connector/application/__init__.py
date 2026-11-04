@@ -17,6 +17,7 @@ from opspilot_common.events.catalogue import (
     JiraIssueFailed,
     JiraIssueLinked,
 )
+from opspilot_common.telemetry import current_traceparent, span
 
 from ..domain.errors import SettingsUnavailableError, TrackerRejectedError, TrackerUnavailableError
 from ..domain.model import Action, JiraContext, JiraSettings, Job, JobStatus, Proposal, TicketFields
@@ -128,6 +129,7 @@ class QueueJob:
                         next_attempt_at=now,
                         link_to=proposal.link_to,
                         reporter_token=proposal.reporter_token,
+                        trace=current_traceparent(),
                     )
                 )
             await uow.commit()
@@ -167,7 +169,8 @@ class ProcessDueJobs:
             log.warning("jira_settings_unavailable", error=exc.message)
             return 0
         for job in jobs:
-            await self._run(job, current)
+            with span("jira.job", traceparent=job.trace, job_id=job.id):
+                await self._run(job, current)
         return len(jobs)
 
     async def _run(self, job: Job, current: tuple[JiraSettings, JiraTracker] | None) -> None:

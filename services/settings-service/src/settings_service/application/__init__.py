@@ -19,6 +19,7 @@ from ..domain.errors import (
     VersionConflictError,
 )
 from ..domain.spec import SectionSpec
+from ..domain.targets import TargetPolicy
 from ..ports import Check, Clock, ConnectionReport, ConnectionTester, UnitOfWork
 
 log = structlog.get_logger(__name__)
@@ -70,8 +71,8 @@ class GetSection:
 
 
 class SaveSection:
-    def __init__(self, uow: UowFactory, clock: Clock) -> None:
-        self._uow, self._clock = uow, clock
+    def __init__(self, uow: UowFactory, clock: Clock, targets: TargetPolicy | None = None) -> None:
+        self._uow, self._clock, self._targets = uow, clock, targets or TargetPolicy()
 
     async def __call__(
         self,
@@ -87,6 +88,7 @@ class SaveSection:
             if doc.version != expected_version:
                 raise VersionConflictError()
             clean_values, clean_secrets = spec.normalise(*doc.candidate(values, secrets))
+            self._targets.check(spec, clean_values)
             changed = doc.replace(spec, clean_values, clean_secrets, now=self._clock.now(), actor=actor)
             if changed:
                 await uow.settings.save(doc, expected_version=expected_version)
@@ -101,8 +103,13 @@ class RunConnectionTest:
     """Tests the *candidate* configuration (unsaved edits merged over stored secrets), so an admin can check
     before saving without retyping passwords."""
 
-    def __init__(self, uow: UowFactory, testers: Mapping[TesterKey, ConnectionTester]) -> None:
-        self._uow, self._testers = uow, testers
+    def __init__(
+        self,
+        uow: UowFactory,
+        testers: Mapping[TesterKey, ConnectionTester],
+        targets: TargetPolicy | None = None,
+    ) -> None:
+        self._uow, self._testers, self._targets = uow, testers, targets or TargetPolicy()
 
     async def __call__(
         self, section: str, values: dict[str, Any] | None = None, secrets: dict[str, str | None] | None = None
@@ -113,6 +120,7 @@ class RunConnectionTest:
         base_values = values if values is not None else doc.values
         try:
             clean_values, clean_secrets = spec.normalise(*doc.candidate(base_values, secrets or {}))
+            self._targets.check(spec, clean_values)
         except InvalidSettingsError as exc:
             checks = [
                 Check(spec.field(k).label if spec.field(k) else k, False, msg)  # type: ignore[union-attr]

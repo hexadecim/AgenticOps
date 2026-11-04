@@ -2,34 +2,74 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable
 
 from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.telemetry import TelemetryConfig
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .auth import InvalidTokenError, Principal, Role, ServiceTokenVerifier, TokenVerifier
 from .logging import correlation_id, new_correlation_id
 from .resilience import CircuitState, ResilienceRegistry
+from .telemetry import SpanKind, span
 
 CORRELATION_HEADER = "X-Correlation-ID"
 SESSION_COOKIE = "opspilot_session"
+
+# FastAPI's own telemetry exports URL paths and query strings (a search term can be a person's name) and
+# exception messages, and configures exporters from OTEL_* by itself. Our spans: CorrelationIdMiddleware.
+NO_NATIVE_TELEMETRY: TelemetryConfig = {
+    "tracing": False,
+    "metrics": False,
+    "logs": False,
+    "operation_spans": False,
+    "auto_configure": False,
+}
+
+_SAFE_CORRELATION = re.compile(r"[\w-]{1,64}")
+# Health checks would drown the traces; a live-update stream's span would last for hours.
+_UNTRACED = ("/health", "/metrics", "/api/events")
 
 _bearer = HTTPBearer(auto_error=False)
 
 
 class CorrelationIdMiddleware(BaseHTTPMiddleware):
+    """Correlation id and server span of a request. Span names use the route's template, never the URL."""
+
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        token = correlation_id.set(request.headers.get(CORRELATION_HEADER) or new_correlation_id())
-        try:
-            response = await call_next(request)
-            response.headers[CORRELATION_HEADER] = correlation_id.get() or ""
-            return response
-        finally:
-            correlation_id.reset(token)
+        header = request.headers.get(CORRELATION_HEADER, "")
+        given = header if _SAFE_CORRELATION.fullmatch(header) else None  # audit-service stores it: bounded
+        if request.url.path.startswith(_UNTRACED):
+            token = correlation_id.set(given or new_correlation_id())
+            try:
+                return _with_correlation(await call_next(request))
+            finally:
+                correlation_id.reset(token)
+        with span(
+            request.method,
+            traceparent=request.headers.get("traceparent"),
+            kind=SpanKind.SERVER,
+            correlation=given,
+        ) as current:
+            token = correlation_id.set(correlation_id.get() or new_correlation_id())
+            try:
+                response = await call_next(request)
+                route = getattr(request.scope.get("route"), "path", "unmatched")
+                current.update_name(f"{request.method} {route}")
+                current.set_attribute("http.status_code", response.status_code)
+                return _with_correlation(response)
+            finally:
+                correlation_id.reset(token)
+
+
+def _with_correlation(response: Response) -> Response:
+    response.headers[CORRELATION_HEADER] = correlation_id.get() or ""
+    return response
 
 
 def principal_dependency(verifier: TokenVerifier) -> Callable[..., Awaitable[Principal]]:

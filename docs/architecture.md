@@ -74,7 +74,7 @@ User decisions:
   - **ops-service open**: the fix gate shows "Evidence unavailable" and Approve is disabled. A fix is never run without fresh evidence.
   - **privacy-service open**: processing stops. Raw email never goes to the LLM, so this path fails closed.
   - **Downstream service open at the gateway**: the gateway returns a 503 with a structured error, and the SPA shows a non-blocking banner.
-- Tests use a fault-injection fixture (toxiproxy in docker-compose, or a respx fake) to trip and recover each breaker.
+- `tests/system/test_chaos.py` trips and recovers every breaker through Toxiproxy (ADR-0009).
 
 ## SOLID: how it is applied (enforced in CLAUDE.md and code review)
 - **Hexagonal layout in every service**: `domain/` (entities, value objects, pure logic), `application/` (use cases), `ports/` (abstract interfaces), `adapters/` (inbound: FastAPI routers and event consumers; outbound: DB, HTTP, broker), and `bootstrap.py` (composition root). Dependencies point inward only; `import-linter` contracts enforce this in CI.
@@ -185,5 +185,7 @@ After each milestone, update the CLAUDE.md memory log.
 - **Graph tests**: with a MemorySaver, the graph stops at each `interrupt`, approve and reject take the right branches, and a duplicate `approval.decided` is idempotent.
 - **Circuit breaker tests**: cut Ollama, Jira and mail through toxiproxy. Assert that the breaker opens after N failures, the fallback behaviour matches the list above, it goes half-open and then closes after recovery, there are no duplicate Jira issues (idempotency key), and the dashboard shows the state.
 - **Architecture tests**: import-linter enforces the layer boundaries and that no service imports another service's code.
+- **Real infrastructure**: `make test-system` (migrations, chaos, broker outage, races), `make test-postgres` (every package's tests on Postgres), `make test-load`, on `deploy/docker-compose.test.yml`.
+- **Frontend**: `npm test` (components), `npm run e2e:a11y` (axe in Chrome, both themes), `npm run e2e:sign-in` (real gateway and identity-service).
 - **End-to-end**: `make up`. In Admin, configure IMAP (Gmail app password), Jira Cloud (sandbox project) and Ollama. Send a test email; it appears in Approvals. Approve it; the KAN-n issue appears in Jira; the audit log shows pseudonymise → classify → approve_ticket → create_jira_issue. Then exercise T2 with the mock executor and T3 against the GreenMail dev mailbox with synthetic mail (never send test mail to a real inbox).
 - **UI check**: compare each page with the wireframe artboards in light and dark themes.

@@ -10,10 +10,13 @@ dependencies = [
   "tenacity>=9.0",
   "redis>=5.2",
   "structlog>=24.4",
-  "pyjwt>=2.9",
+  "pyjwt[crypto]>=2.9",
   "prometheus-client>=0.21",
   "sqlalchemy[asyncio]>=2.0.36",
   "aio-pika>=9.4",
+  "opentelemetry-api>=1.27",
+  "opentelemetry-sdk>=1.27",
+  "opentelemetry-exporter-otlp-proto-grpc>=1.27",
 ]
 
 [project.optional-dependencies]

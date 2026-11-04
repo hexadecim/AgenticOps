@@ -12,5 +12,7 @@ approves each one, and every step is recorded in an append-only audit log.
 cp .env.example .env      # fill FERNET_KEY, JWT_SECRET
 make install
 make test
+make test-infra-up && make test-system && make test-postgres   # real Postgres, RabbitMQ, Redis, Toxiproxy (own ports)
+cd frontend && npm test && npm run e2e:a11y                    # components; accessibility audit in Chrome
 make infra-up             # needs Docker Desktop running; Ollama runs on the host
 ```

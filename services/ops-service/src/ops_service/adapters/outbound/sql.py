@@ -83,6 +83,7 @@ class OpsTables:
         self.jobs = Table(
             "fix_jobs",
             self.metadata,
+            Column("trace", String(64), nullable=True),
             Column("id", String(36), primary_key=True),
             Column("run_id", String(36), nullable=False),
             Column("thread_id", String(36), nullable=False),
@@ -186,6 +187,7 @@ def _job_row(j: FixJob) -> dict[str, Any]:
         "region": j.region,
         "ok": j.ok,
         "detail": j.detail,
+        "trace": j.trace,
     }
 
 
@@ -204,6 +206,7 @@ def _job(r: Any) -> FixJob:
         attempts=r.attempts,
         detail=r.detail,
         ok=r.ok,
+        trace=r.trace,
     )
 
 

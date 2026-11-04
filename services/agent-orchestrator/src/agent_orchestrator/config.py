@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from pydantic import Field
+import os
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", extra="ignore", secrets_dir=os.environ.get("SECRETS_DIR")
+    )
 
     database_url: str = (
         "postgresql+asyncpg://orchestrator_svc:orchestrator_dev_password@localhost:5432/opspilot"
@@ -17,7 +20,8 @@ class Settings(BaseSettings):
     privacy_url: str = "http://localhost:8004"
     jira_connector_url: str = "http://localhost:8007"
     ops_url: str = "http://localhost:8010"
-    jwt_secret: str = Field(min_length=32)
+    jwt_secret: str = ""  # development; production uses auth_keys_dir (checked by AuthKeys.load)
+    auth_keys_dir: str | None = None
     resilience_config: str | None = None
     log_json: bool = True
     worker_enabled: bool = True

@@ -109,6 +109,9 @@ class InMemoryRequestRepository:
     async def get(self, dsr_id: str) -> DataRequest | None:
         return copy.deepcopy(self.rows.get(dsr_id))
 
+    async def get_for_update(self, dsr_id: str) -> DataRequest | None:
+        return await self.get(dsr_id)
+
     async def all(self) -> list[DataRequest]:
         return [copy.deepcopy(r) for _, r in sorted(self.rows.items(), reverse=True)]
 

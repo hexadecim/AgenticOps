@@ -1,0 +1,273 @@
+# Production override: docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml up -d
+# Run deploy/prod/generate-secrets.sh first. See docs/adr/0009-production-hardening.md.
+#
+# - Only nginx (web) is published, on 80 and 443. Infrastructure and services have no ports.
+# - Secrets are files (SECRETS_DIR); each service mounts only its own folder. The compose file's dev values are
+#   removed with !reset, because an environment variable would beat a secret file.
+# - Migrations run once, before the services, as separate jobs (RUN_MIGRATIONS=false in the services).
+# - No GreenMail, no Toxiproxy. Jaeger stays, without published ports, until you point OTLP elsewhere.
+name: opspilot-prod
+
+x-secret-env: &secret-env
+  SECRETS_DIR: /run/opspilot
+  AUTH_KEYS_DIR: /run/opspilot/keys
+  DATABASE_URL: !reset null
+  RABBITMQ_URL: !reset null
+  JWT_SECRET: !reset null
+  FERNET_KEY: !reset null
+  RUN_MIGRATIONS: "false"
+
+services:
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: !reset null
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres/superuser_password
+    ports: !reset []
+    volumes:
+      - ./prod/secrets/postgres:/run/secrets/postgres:ro
+      - ./prod/postgres-roles.sh:/docker-entrypoint-initdb.d/02-roles.sh:ro
+
+  redis:
+    ports: !reset []
+
+  rabbitmq:
+    environment:
+      RABBITMQ_DEFAULT_USER: !reset null
+      RABBITMQ_DEFAULT_PASS: !reset null
+    ports: !reset []
+    volumes:
+      - ./prod/secrets/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/90-opspilot.conf:ro
+
+  toxiproxy:
+    profiles: [never]
+
+  devmail:
+    profiles: [never]
+
+  jaeger:
+    ports: !reset []
+
+  web:
+    build: !override
+      context: ../frontend
+    ports: !override ["80:80", "443:443"]
+    volumes:
+      - ../frontend/nginx.tls.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./prod/secrets/tls:/etc/nginx/tls:ro
+
+  api-gateway:
+    ports: !reset []
+    environment:
+      SECRETS_DIR: /run/opspilot
+      AUTH_KEYS_DIR: /run/opspilot/keys
+      DATABASE_URL: !reset null  # the gateway has no database
+      RABBITMQ_URL: !reset null
+      JWT_SECRET: !reset null
+      COOKIE_SECURE: "true"
+      FORWARDED_ALLOW_IPS: "*"
+    volumes:
+      - ./prod/secrets/api-gateway:/run/opspilot:ro
+
+  identity-service:
+    environment:
+      <<: *secret-env
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:?set BOOTSTRAP_ADMIN_EMAIL}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?set BOOTSTRAP_ADMIN_PASSWORD}
+    volumes:
+      - ./prod/secrets/identity-service:/run/opspilot:ro
+    depends_on:
+      identity-service-migrate: { condition: service_completed_successfully }
+
+  identity-service-migrate:
+    build: { context: .., dockerfile: services/identity-service/Dockerfile }
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    environment:
+      SECRETS_DIR: /run/opspilot
+      AUTH_KEYS_DIR: /run/opspilot/keys
+    volumes:
+      - ./prod/secrets/identity-service:/run/opspilot:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  settings-service:
+    environment:
+      <<: *secret-env
+      # Comma-separated hosts settings may point to, e.g. "acme.atlassian.net,.acme.example". Empty: any host.
+      ALLOWED_TARGET_HOSTS: ${ALLOWED_TARGET_HOSTS:-}
+    volumes:
+      - ./prod/secrets/settings-service:/run/opspilot:ro
+    depends_on:
+      settings-service-migrate: { condition: service_completed_successfully }
+
+  settings-service-migrate:
+    build: { context: .., dockerfile: services/settings-service/Dockerfile }
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    environment:
+      SECRETS_DIR: /run/opspilot
+      AUTH_KEYS_DIR: /run/opspilot/keys
+    volumes:
+      - ./prod/secrets/settings-service:/run/opspilot:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  mail-service:
+    environment:
+      <<: *secret-env
+    volumes:
+      - ./prod/secrets/mail-service:/run/opspilot:ro
+    depends_on:
+      mail-service-migrate: { condition: service_completed_successfully }
+
+  mail-service-migrate:
+    build: { context: .., dockerfile: services/mail-service/Dockerfile }
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    environment:
+      SECRETS_DIR: /run/opspilot
+      AUTH_KEYS_DIR: /run/opspilot/keys
+    volumes:
+      - ./prod/secrets/mail-service:/run/opspilot:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  privacy-service:
+    environment:
+      <<: *secret-env
+    volumes:
+      - ./prod/secrets/privacy-service:/run/opspilot:ro
+    depends_on:
+      privacy-service-migrate: { condition: service_completed_successfully }
+
+  privacy-service-migrate:
+    build: { context: .., dockerfile: services/privacy-service/Dockerfile }
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    environment:
+      SECRETS_DIR: /run/opspilot
+      AUTH_KEYS_DIR: /run/opspilot/keys
+    volumes:
+      - ./prod/secrets/privacy-service:/run/opspilot:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  audit-service:
+    environment:
+      <<: *secret-env
+    volumes:
+      - ./prod/secrets/audit-service:/run/opspilot:ro
+    depends_on:
+      audit-service-migrate: { condition: service_completed_successfully }
+
+  audit-service-migrate:
+    build: { context: .., dockerfile: services/audit-service/Dockerfile }
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    environment:
+      SECRETS_DIR: /run/opspilot
+      AUTH_KEYS_DIR: /run/opspilot/keys
+    volumes:
+      - ./prod/secrets/audit-migrate:/run/opspilot:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  approval-service:
+    environment:
+      <<: *secret-env
+    volumes:
+      - ./prod/secrets/approval-service:/run/opspilot:ro
+    depends_on:
+      approval-service-migrate: { condition: service_completed_successfully }
+
+  approval-service-migrate:
+    build: { context: .., dockerfile: services/approval-service/Dockerfile }
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    environment:
+      SECRETS_DIR: /run/opspilot
+      AUTH_KEYS_DIR: /run/opspilot/keys
+    volumes:
+      - ./prod/secrets/approval-service:/run/opspilot:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  jira-connector:
+    environment:
+      <<: *secret-env
+    volumes:
+      - ./prod/secrets/jira-connector:/run/opspilot:ro
+    depends_on:
+      jira-connector-migrate: { condition: service_completed_successfully }
+
+  jira-connector-migrate:
+    build: { context: .., dockerfile: services/jira-connector/Dockerfile }
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    environment:
+      SECRETS_DIR: /run/opspilot
+      AUTH_KEYS_DIR: /run/opspilot/keys
+    volumes:
+      - ./prod/secrets/jira-connector:/run/opspilot:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  agent-orchestrator:
+    environment:
+      <<: *secret-env
+    volumes:
+      - ./prod/secrets/agent-orchestrator:/run/opspilot:ro
+    depends_on:
+      agent-orchestrator-migrate: { condition: service_completed_successfully }
+
+  agent-orchestrator-migrate:
+    build: { context: .., dockerfile: services/agent-orchestrator/Dockerfile }
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    environment:
+      SECRETS_DIR: /run/opspilot
+      AUTH_KEYS_DIR: /run/opspilot/keys
+    volumes:
+      - ./prod/secrets/agent-orchestrator:/run/opspilot:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  reporting-service:
+    environment:
+      <<: *secret-env
+    volumes:
+      - ./prod/secrets/reporting-service:/run/opspilot:ro
+    depends_on:
+      reporting-service-migrate: { condition: service_completed_successfully }
+
+  reporting-service-migrate:
+    build: { context: .., dockerfile: services/reporting-service/Dockerfile }
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    environment:
+      SECRETS_DIR: /run/opspilot
+      AUTH_KEYS_DIR: /run/opspilot/keys
+    volumes:
+      - ./prod/secrets/reporting-service:/run/opspilot:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  ops-service:
+    environment:
+      <<: *secret-env
+    volumes:
+      - ./prod/secrets/ops-service:/run/opspilot:ro
+    depends_on:
+      ops-service-migrate: { condition: service_completed_successfully }
+
+  ops-service-migrate:
+    build: { context: .., dockerfile: services/ops-service/Dockerfile }
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    environment:
+      SECRETS_DIR: /run/opspilot
+      AUTH_KEYS_DIR: /run/opspilot/keys
+    volumes:
+      - ./prod/secrets/ops-service:/run/opspilot:ro
+    depends_on:
+      postgres: { condition: service_healthy }

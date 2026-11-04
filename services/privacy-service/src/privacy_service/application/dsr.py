@@ -70,6 +70,14 @@ async def _get(uow: UnitOfWork, dsr_id: str) -> DataRequest:
     return request
 
 
+async def _for_change(uow: UnitOfWork, dsr_id: str) -> DataRequest:
+    """Held until the transaction ends: a double click or five stores answering at once are served in turn."""
+    request = await uow.requests.get_for_update(dsr_id)
+    if request is None:
+        raise RequestNotFoundError(dsr_id)
+    return request
+
+
 @dataclass(slots=True)
 class Subject:
     tokens: list[str] = field(default_factory=list)
@@ -194,7 +202,7 @@ class VerifyRequest:
     async def __call__(self, principal: Principal, dsr_id: str, how: str) -> DataRequest:
         role = _role(principal)
         async with self._uow() as uow:
-            request = await _get(uow, dsr_id)
+            request = await _for_change(uow, dsr_id)
             request.verify(how, self._clock.now())
             await uow.requests.save(request)
             uow.events.record(
@@ -226,11 +234,11 @@ class StartExport:
     async def __call__(self, principal: Principal, dsr_id: str) -> DataRequest:
         role = _role(principal)
         async with self._uow() as uow:
-            request = await _get(uow, dsr_id)
+            request = await _for_change(uow, dsr_id)
             subject = await load_subject(uow, request.subject_token, request.address)
         _refuse_unavailable(await self._stores.gather(subject.query()))
         async with self._uow() as uow:
-            request = await _get(uow, dsr_id)
+            request = await _for_change(uow, dsr_id)
             request.start_export()
             await uow.requests.save(request)
             uow.events.record(
@@ -248,7 +256,7 @@ class StartErasure:
     async def __call__(self, principal: Principal, dsr_id: str) -> DataRequest:
         role = _role(principal)
         async with self._uow() as uow:
-            request = await _get(uow, dsr_id)
+            request = await _for_change(uow, dsr_id)
             subject = await load_subject(uow, request.subject_token, request.address)
         reports = await self._stores.gather(subject.query())
         _refuse_unavailable(reports)
@@ -258,7 +266,7 @@ class StartErasure:
         run_ids = [run for r in reports for run in r.run_ids]
         own_ids = sorted({*(r.email_id for r in subject.own), *(e for r in reports for e in r.email_ids)})
         async with self._uow() as uow:
-            request = await _get(uow, dsr_id)
+            request = await _for_change(uow, dsr_id)
             request.start_erasure(subject.tokens, own_ids, run_ids)
             await uow.vault.erase(subject.tokens)
             await uow.records.delete_emails(own_ids)
@@ -298,7 +306,7 @@ class CloseRequest:
     async def __call__(self, principal: Principal, dsr_id: str, outcome: str) -> DataRequest:
         role = _role(principal)
         async with self._uow() as uow:
-            request = await _get(uow, dsr_id)
+            request = await _for_change(uow, dsr_id)
             request.close_by_hand(outcome, self._clock.now())
             await uow.requests.save(request)
             uow.events.record(
@@ -322,7 +330,7 @@ class RetrySend:
     async def __call__(self, principal: Principal, dsr_id: str) -> DataRequest:
         role = _role(principal)
         async with self._uow() as uow:
-            request = await _get(uow, dsr_id)
+            request = await _for_change(uow, dsr_id)
             kind = request.retry_send()
             await uow.requests.save(request)
             uow.events.record(
@@ -339,7 +347,7 @@ class RecordStoreErased:
 
     async def __call__(self, p: SubjectStoreErased) -> None:
         async with self._uow() as uow:
-            request = await uow.requests.get(p.dsr_id)
+            request = await uow.requests.get_for_update(p.dsr_id)
             if request is None:
                 return
             finished = request.store_erased(p.store)
@@ -363,7 +371,7 @@ class RecordDsrMessage:
 
     async def __call__(self, p: DsrMessageResult) -> None:
         async with self._uow() as uow:
-            request = await uow.requests.get(p.dsr_id)
+            request = await uow.requests.get_for_update(p.dsr_id)
             if request is None or p.attempt != request.attempt:
                 return
             closed = request.message_result(p.sent, p.detail, self._clock.now())

@@ -83,6 +83,7 @@ class Job:
     attempts: int = 0
     issue_key: str | None = None
     last_error: str | None = None
+    trace: str | None = None  # W3C trace context of the case
 
     @property
     def label(self) -> str:

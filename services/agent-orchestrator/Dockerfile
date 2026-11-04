@@ -12,4 +12,4 @@ RUN useradd --system --uid 10001 opspilot
 USER opspilot
 WORKDIR /app/services/agent-orchestrator
 EXPOSE 8008
-CMD ["sh", "-c", "alembic upgrade head && uvicorn --factory agent_orchestrator.main:create_app --host 0.0.0.0 --port 8008 --proxy-headers"]
+CMD ["sh", "-c", "if [ \"$RUN_MIGRATIONS\" != false ]; then alembic upgrade head; fi && exec uvicorn --factory agent_orchestrator.main:create_app --host 0.0.0.0 --port 8008 --proxy-headers"]

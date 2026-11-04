@@ -8,14 +8,18 @@ Topology per consumer queue `<service>.<name>`:
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Sequence
 from typing import Any
 
 import aio_pika
 import structlog
 from aio_pika.abc import AbstractChannel, AbstractExchange, AbstractIncomingMessage, AbstractRobustConnection
+from aio_pika.exceptions import AMQPException
+from aiormq.exceptions import AMQPError
 
-from ..resilience import Resilient
+from ..resilience import DependencyUnreachableError, Resilient
+from ..telemetry import SpanKind, span
 from .envelope import EventEnvelope
 from .ports import EventHandler
 
@@ -36,7 +40,8 @@ class RabbitConnection:
     async def open(self) -> None:
         self._connection = await aio_pika.connect_robust(self._url)
         self._channel = await self._connection.channel(publisher_confirms=True)
-        await self._channel.set_qos(prefetch_count=16)
+        # One event at a time per queue: handlers keep the order of the bus and never interleave.
+        await self._channel.set_qos(prefetch_count=1)
         self._exchange = await self._channel.declare_exchange(
             EXCHANGE, aio_pika.ExchangeType.TOPIC, durable=True
         )
@@ -75,9 +80,52 @@ class RabbitPublisher:
             delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
         )
         # Publishing is idempotent for consumers (inbox dedupes by event id), so retries are safe.
-        await self._resilient.call(
-            lambda: self._connection.exchange.publish(message, routing_key=envelope.type)
+
+        async def publish() -> None:
+            try:
+                await self._connection.exchange.publish(message, routing_key=envelope.type)
+            except (AMQPError, AMQPException, RuntimeError) as exc:
+                # A closed channel is an outage like any other: it counts against the breaker, and the relay
+                # keeps what it already published and leaves the rest in the outbox.
+                raise DependencyUnreachableError(self._resilient.name, type(exc).__name__) from exc
+
+        with span(f"publish {envelope.type}", traceparent=envelope.traceparent, kind=SpanKind.PRODUCER):
+            await self._resilient.call(publish)
+
+
+class TransientConsumer:
+    """For live notifications to whoever is connected now: its queue lives only as long as this process, so
+    nothing piles up while it is away. No retry and no DLQ: a missed notification is simply gone."""
+
+    def __init__(
+        self,
+        connection: RabbitConnection,
+        purpose: str,
+        bindings: Sequence[str],
+        handler: EventHandler,
+        *,
+        replaces: str | None = None,
+    ) -> None:
+        self._connection, self._purpose = connection, purpose
+        self._bindings, self._handler, self._replaces = tuple(bindings), handler, replaces
+
+    async def start(self) -> None:
+        channel = self._connection.channel
+        if self._replaces:  # the durable queues of earlier versions would fill up with nobody reading them
+            for name in (self._replaces, f"{self._replaces}.retry", f"{self._replaces}.dlq"):
+                await channel.queue_delete(name)
+        queue = await channel.declare_queue(
+            f"{self._purpose}.{uuid.uuid4().hex[:8]}", exclusive=True, auto_delete=True
         )
+        for pattern in self._bindings:
+            await queue.bind(self._connection.exchange, routing_key=pattern)
+        await queue.consume(self._on_message, no_ack=True)
+
+    async def _on_message(self, message: AbstractIncomingMessage) -> None:
+        try:
+            await self._handler(EventEnvelope.from_bytes(message.body))
+        except Exception:
+            log.warning("live_event_dropped", queue=self._purpose, message_id=message.message_id)
 
 
 class RabbitConsumer:
@@ -129,7 +177,15 @@ class RabbitConsumer:
             await self._park(message)
             return
         try:
-            await self._handler(envelope)
+            with span(
+                f"consume {envelope.type}",
+                traceparent=envelope.traceparent,
+                kind=SpanKind.CONSUMER,
+                correlation=envelope.correlation_id,
+                queue=self._queue_name,
+                event_id=envelope.id,
+            ):
+                await self._handler(envelope)
         except Exception:
             deliveries = _death_count(message.headers, self._queue_name) + 1
             if deliveries >= self._max_retries:

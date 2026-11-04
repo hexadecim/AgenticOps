@@ -76,6 +76,7 @@ class Run:
     # Results of other services (jira-connector's ticket, ops-service's action), kept even when they arrive
     # before the graph reaches the node that waits for them.
     results: dict[str, Any] = field(default_factory=dict)
+    trace: str | None = None  # W3C trace context of the case, so every step joins the same trace
 
     def start(self, now: datetime) -> None:
         self.status, self.updated_at, self.detail = RunStatus.RUNNING, now, None

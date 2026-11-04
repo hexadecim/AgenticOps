@@ -6,7 +6,11 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import timedelta
 
-from opspilot_common.auth import Principal, Role, ServiceTokenIssuer, ServiceTokenVerifier, TokenVerifier
+from opspilot_common.auth import (
+    AuthKeys,
+    Principal,
+    Role,
+)
 from opspilot_common.resilience import ResilienceRegistry, ResilientHttpClient, redis_registry
 from opspilot_common.web import principal_dependency, require_roles, service_dependency
 from redis.asyncio import Redis
@@ -78,6 +82,7 @@ def build_container(
     privacy: Detokeniser | None = None,
     dsr_content: DsrContentSource | None = None,
 ) -> Container:
+    keys = AuthKeys.load(SERVICE, settings.jwt_secret, settings.auth_keys_dir)
     engine = engine or create_async_engine(settings.database_url, pool_pre_ping=True)
     tables = MailTables(schema=settings.db_schema if schema is None else schema or None)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -88,7 +93,7 @@ def build_container(
     redis = redis or Redis.from_url(settings.redis_url)
     registry = redis_registry(redis, settings.resilience_config)
     closers: list = [redis.aclose]  # type: ignore[type-arg]
-    tokens = ServiceTokenIssuer(settings.jwt_secret, SERVICE)
+    tokens = keys.service_issuer()
     if source is None:
         http = ResilientHttpClient.from_registry(registry, "settings-service", base_url=settings.settings_url)
         closers.append(http.aclose)
@@ -113,7 +118,7 @@ def build_container(
     purge = PurgeExpiredEmails(uow, clock, days=settings.retention_days)
     send_due = SendDueMessages(uow, active, privacy, clock)
     send_dsr = SendDsrMessages(uow, active, dsr_content, clock)
-    current = principal_dependency(TokenVerifier(settings.jwt_secret))
+    current = principal_dependency(keys.session_verifier())
 
     async def close_mailbox() -> None:
         if active.connection is not None:
@@ -140,8 +145,6 @@ def build_container(
         scheduler=Scheduler(poll, purge, active, send_due, send_dsr),
         current_user=current,
         require_admin=require_roles(current, Role.ADMIN),
-        require_reader_service=service_dependency(
-            ServiceTokenVerifier(settings.jwt_secret), *RAW_EMAIL_READERS
-        ),
+        require_reader_service=service_dependency(keys.service_verifier(), *RAW_EMAIL_READERS),
         closers=closers,
     )

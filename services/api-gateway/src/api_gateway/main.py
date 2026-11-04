@@ -9,7 +9,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from opspilot_common.events import EventRuntime
 from opspilot_common.logging import configure_logging
-from opspilot_common.web import CorrelationIdMiddleware, health_routes
+from opspilot_common.telemetry.setup import setup_tracing
+from opspilot_common.web import NO_NATIVE_TELEMETRY, CorrelationIdMiddleware, health_routes
 
 from .adapters.inbound.http import (
     CSRF_HEADER,
@@ -27,6 +28,7 @@ def create_app(container: Container | None = None) -> FastAPI:
     if container is None:
         settings = Settings()
         configure_logging("api-gateway", json=settings.log_json)
+        setup_tracing("api-gateway")
         container = build_container(settings)
 
     @asynccontextmanager
@@ -34,7 +36,7 @@ def create_app(container: Container | None = None) -> FastAPI:
         runtime = None
         if container.settings.live_events:
             runtime = EventRuntime("api-gateway", container.settings.rabbitmq_url, container.registry)
-            runtime.add_consumer("live", RELAYED, container.live.relay)
+            runtime.add_live_consumer("live", RELAYED, container.live.relay)
             await runtime.start()
         yield
         if runtime:
@@ -43,6 +45,7 @@ def create_app(container: Container | None = None) -> FastAPI:
             await close()
 
     app = FastAPI(
+        telemetry=NO_NATIVE_TELEMETRY,
         title="OpsPilot api-gateway",
         version="0.1.0",
         lifespan=lifespan,

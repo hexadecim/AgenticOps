@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from opspilot_common.auth import Principal, ServiceTokenVerifier, TokenVerifier
+from opspilot_common.auth import AuthKeys, Principal
 from opspilot_common.resilience import ResilienceRegistry, redis_registry
 from opspilot_common.web import principal_dependency, service_dependency
 from redis.asyncio import Redis
@@ -68,6 +68,7 @@ def build_container(
     redis: Redis | None = None,
     clock: Clock | None = None,
 ) -> Container:
+    keys = AuthKeys.load(SERVICE, settings.jwt_secret, settings.auth_keys_dir)
     engine = engine or create_async_engine(settings.database_url, pool_pre_ping=True)
     tables = ApprovalTables(schema=settings.db_schema if schema is None else schema or None)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -94,7 +95,7 @@ def build_container(
         list_approvals=ListApprovals(uow, clock),
         get_approval=GetApproval(uow),
         subject_store=SqlApprovalSubjectStore(sessions, tables),
-        current_user=principal_dependency(TokenVerifier(settings.jwt_secret)),
-        require_privacy=service_dependency(ServiceTokenVerifier(settings.jwt_secret), "privacy-service"),
+        current_user=principal_dependency(keys.session_verifier()),
+        require_privacy=service_dependency(keys.service_verifier(), "privacy-service"),
         closers=[redis.aclose],
     )

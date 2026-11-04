@@ -17,6 +17,7 @@ from opspilot_common.events.catalogue import (
     MessageSendRequested,
     MessageSent,
 )
+from opspilot_common.telemetry import current_traceparent, span
 
 from ..domain.errors import (
     DetokeniseRefusedError,
@@ -54,7 +55,7 @@ class QueueMessage:
                         run_id=p.run_id, thread_id=p.thread_id, email_id=recipient.email_id,
                         email_token=recipient.email_token, name_token=recipient.name_token,
                         subject=p.subject, body=p.body, created_at=now, next_try_at=now,
-                        jira_key=p.jira_key, kind=p.kind,
+                        jira_key=p.jira_key, kind=p.kind, trace=current_traceparent(),
                     )
                 )  # fmt: skip
             await uow.commit()
@@ -113,7 +114,8 @@ class SendDueMessages:
         async with self._uow() as uow:
             due = await uow.outgoing.due(self._clock.now(), self._batch)
         for row in due:
-            await self._send_one(row)
+            with span("mail.send", traceparent=row.trace, message_id=row.message_id):
+                await self._send_one(row)
         return len(due)
 
     async def _send_one(self, row: OutgoingMessage) -> None:
@@ -123,10 +125,11 @@ class SendDueMessages:
             row.failed("The configured mailbox cannot send email.")
             await self._finish(row)
             return
-        row.claim()
         async with self._uow() as uow:
-            await uow.outgoing.save(row)
+            claimed = await uow.outgoing.claim(row)
             await uow.commit()
+        if not claimed:
+            return  # another sender has it: at most once, whatever the number of replicas
         try:
             await sender.send(await self._prepare(row))
         except (DetokeniseUnavailableError, MailboxUnavailableError) as exc:
